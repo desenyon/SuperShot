@@ -1,0 +1,10 @@
+Building for production...
+[Computing dependencies]
+[1 / 3]
+Build complete! (0.55 sec)
+render_200_vector_layers_width_2200_ms: [113.5165, 11.995667, 12.446375, 13.185209, 24.622667]
+render_200_vector_layers_width_5120_ms: [33.655292, 30.83875, 20.523458, 11.021334, 12.575625]
+ocr_5120x2880_accurate_false_ms: 657.125792, regions: 24
+ocr_5120x2880_accurate_true_ms: 441.556083, regions: 24
+ocr_5120x2880_accurate_false_ms: 241.333166, regions: 24
+ocr_5120x2880_accurate_true_ms: 298.534833, regions: 24

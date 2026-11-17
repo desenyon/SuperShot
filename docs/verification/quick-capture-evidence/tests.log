@@ -1,0 +1,280 @@
+Building for debugging...
+[Computing dependencies]
+[2 / 4] Export
+[3 / 5] Export
+[8 / 10] Export
+/Users/desenyon/Developer/SuperShot/Package.swift: Export: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[11 / 13] AI
+[13 / 15] AI
+[17 / 20] Editor
+[18 / 21] Editor
+[21 / 23] Editor
+/Users/desenyon/Developer/SuperShot/Sources/Editor/EditorView.swift:287:17: warning: 'showsBaselineSeparator' was deprecated in macOS 15.0: No longer supported [#DeprecatedDeclaration]
+285 |         // An empty unified toolbar gives a taller title bar, which centers the window buttons on the tool palette.
+286 |         let toolbar = NSToolbar(identifier: "editor")
+287 |         toolbar.showsBaselineSeparator = false
+    |                 `- warning: 'showsBaselineSeparator' was deprecated in macOS 15.0: No longer supported [#DeprecatedDeclaration]
+288 |         window.toolbar = toolbar
+289 |         window.toolbarStyle = .unified
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+[23 / 25] Library
+[25 / 27] Library
+[27 / 27] Hotkeys
+[28 / 31] Settings
+[29 / 32] Settings
+[31 / 33] Settings
+[36 / 38] SuperShot-product
+[39 / 42] SuperShot-product
+[40 / 42] SuperShot-product
+[42 / 44] SuperShot-product
+[44 / 44] SuperShot-product/Users/desenyon/Developer/SuperShot/Package.swift: SuperShot-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/desenyon/Developer/SuperShot/Package.swift: SuperShot-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+
+[48 / 72] LibraryTests-product
+[50 / 74] EditorTests-product
+[52 / 78] ExportTests-product
+[54 / 78] AITests-product
+[54 / 78] CaptureTests-product
+[60 / 84] ExportTests-product
+/Users/desenyon/Developer/SuperShot/Package.swift: SettingsTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/desenyon/Developer/SuperShot/Package.swift: SettingsTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[65 / 85] LibraryTests-product
+[66 / 85] ExportTests-product
+[67 / 85] SuperShot-product
+/Users/desenyon/Developer/SuperShot/Package.swift: LibraryTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/desenyon/Developer/SuperShot/Package.swift: LibraryTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[72 / 87] LibraryTests-product
+[75 / 92] CaptureTests-product
+/Users/desenyon/Developer/SuperShot/Package.swift: ExportTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/desenyon/Developer/SuperShot/Package.swift: ExportTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+/Users/desenyon/Developer/SuperShot/Package.swift: EditorTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/desenyon/Developer/SuperShot/Package.swift: EditorTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[82 / 94] EditorTests-product
+/Users/desenyon/Developer/SuperShot/Package.swift: CaptureTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/desenyon/Developer/SuperShot/Package.swift: CaptureTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[93 / 97] ExportTests-product
+/Users/desenyon/Developer/SuperShot/Package.swift: AITests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/desenyon/Developer/SuperShot/Package.swift: AITests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[96 / 97] AITests-product
+Build complete! (11.79 sec)
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite SettingsTests started.
+◇ Test storedSettingsMoveToFullQualityOnceAndThenRespectChanges() started.
+◇ Test autoCopyAddsToEveryModeWithoutRemovingOtherActions() started.
+◇ Test olderPreferencesKeepAppearanceWhenCaptureSettingsAreAdded() started.
+◇ Test setupIsShownOnlyOnceEvenWhenClosedWithoutPermission() started.
+◇ Test invalidButWellFormedPreferencesAreRecovered() started.
+◇ Test captureConvenienceDefaultsAndPersistence() started.
+◇ Test existingUsersDoNotGetSetupAgain() started.
+◇ Test testDefaultsArePrivateAndMenuBarOnly() started.
+◇ Test testChangesSurviveNewStore() started.
+◇ Test testCorruptPreferencesArePreservedAndRecover() started.
+◇ Test floatingPreferencesSurviveRelaunchAndOlderSettingsMigrate() started.
+✔ Test testDefaultsArePrivateAndMenuBarOnly() passed after 0.001 seconds.
+✔ Test autoCopyAddsToEveryModeWithoutRemovingOtherActions() passed after 0.001 seconds.
+✔ Test olderPreferencesKeepAppearanceWhenCaptureSettingsAreAdded() passed after 0.001 seconds.
+✔ Test captureConvenienceDefaultsAndPersistence() passed after 0.004 seconds.
+✔ Test setupIsShownOnlyOnceEvenWhenClosedWithoutPermission() passed after 0.006 seconds.
+✔ Test storedSettingsMoveToFullQualityOnceAndThenRespectChanges() passed after 0.008 seconds.
+✔ Test existingUsersDoNotGetSetupAgain() passed after 0.011 seconds.
+✔ Test invalidButWellFormedPreferencesAreRecovered() passed after 0.012 seconds.
+✔ Test testChangesSurviveNewStore() passed after 0.014 seconds.
+✔ Test testCorruptPreferencesArePreservedAndRecover() passed after 0.016 seconds.
+✔ Test floatingPreferencesSurviveRelaunchAndOlderSettingsMigrate() passed after 0.020 seconds.
+✔ Suite SettingsTests passed after 0.020 seconds.
+✔ Test run with 11 tests in 1 suite passed after 0.020 seconds.
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite RenderTests started.
+◇ Test partiallyClippedBlurDoesNotStretchPixelsOutsideItsRegion() started.
+◇ Test insetAddsAFrameInTheImageEdgeColor() started.
+◇ Test cachedDecodeKeepsDifferentSourcesIndependent() started.
+◇ Test pngSnapshotIsRepeatable() started.
+◇ Test projectsWithoutNewBackdropFieldsStillOpen() started.
+◇ Test rotatedMagnifierUsesPixelsAtItsVisiblePosition() started.
+◇ Test backdropAndAnnotationRenderInExportCoordinates() started.
+◇ Test topLeftCropStaysRedAndOriginalStaysUntouched() started.
+◇ Test gradientStopsAndAngleControlTheBackdrop() started.
+◇ Test backdropMatchesIndependentGoldenSnapshot() started.
+✔ Test projectsWithoutNewBackdropFieldsStillOpen() passed after 0.004 seconds.
+✔ Test backdropAndAnnotationRenderInExportCoordinates() passed after 0.006 seconds.
+✔ Test insetAddsAFrameInTheImageEdgeColor() passed after 0.006 seconds.
+✔ Test rotatedMagnifierUsesPixelsAtItsVisiblePosition() passed after 0.006 seconds.
+✔ Test topLeftCropStaysRedAndOriginalStaysUntouched() passed after 0.006 seconds.
+✔ Test pngSnapshotIsRepeatable() passed after 0.006 seconds.
+✔ Test gradientStopsAndAngleControlTheBackdrop() passed after 0.006 seconds.
+✔ Test cachedDecodeKeepsDifferentSourcesIndependent() passed after 0.006 seconds.
+✔ Test partiallyClippedBlurDoesNotStretchPixelsOutsideItsRegion() passed after 0.064 seconds.
+✔ Test backdropMatchesIndependentGoldenSnapshot() passed after 0.098 seconds.
+✔ Suite RenderTests passed after 0.098 seconds.
+✔ Test run with 10 tests in 1 suite passed after 0.098 seconds.
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite RecognitionTests started.
+◇ Test realVisionRecognizesTextAndQRCode() started.
+◇ Test fastRecognitionIncludesSmallTextOnLargeCaptures() started.
+◇ Test redactionFindsSensitiveTextAndFacesButNotOrdinaryWords() started.
+✔ Test redactionFindsSensitiveTextAndFacesButNotOrdinaryWords() passed after 0.006 seconds.
+✔ Test fastRecognitionIncludesSmallTextOnLargeCaptures() passed after 0.102 seconds.
+✔ Test realVisionRecognizesTextAndQRCode() passed after 0.170 seconds.
+✔ Suite RecognitionTests passed after 0.170 seconds.
+✔ Test run with 3 tests in 1 suite passed after 0.170 seconds.
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite HistoryTests started.
+◇ Test corruptIndexRecoversProjectsAndPreservesBackup() started.
+◇ Test historySurvivesRestartSearchesOCRAndRetainsEdits() started.
+◇ Test searchToleratesOCRWordSplitsAndLineBreaks() started.
+✔ Test searchToleratesOCRWordSplitsAndLineBreaks() passed after 0.011 seconds.
+✔ Test corruptIndexRecoversProjectsAndPreservesBackup() passed after 0.013 seconds.
+✔ Test historySurvivesRestartSearchesOCRAndRetainsEdits() passed after 0.014 seconds.
+✔ Suite HistoryTests passed after 0.014 seconds.
+✔ Test run with 3 tests in 1 suite passed after 0.014 seconds.
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite HotkeysTests started.
+◇ Test detectsDuplicateButAllowsDifferentModifiers() started.
+✔ Test detectsDuplicateButAllowsDifferentModifiers() passed after 0.001 seconds.
+✔ Suite HotkeysTests passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.001 seconds.
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite ExportTests started.
+◇ Test clipboardRoundTripUsesAnIsolatedPasteboard() started.
+◇ Test lateCopiesCannotReplaceNewerCopies() started.
+◇ Test filenameCannotEscapeFolder() started.
+◇ Test unicodeFileNamesFitOnDiskAndTokensAreExpandedOnce() started.
+◇ Test pairedExportsNeverReplaceAProjectAcrossFormats() started.
+◇ Test automaticSaveNeverOverwritesExistingFile() started.
+◇ Test pdfIsReadableAndRetinaResamplingHasExactDimensions() started.
+◇ Test invalidCopyDoesNotClearExistingClipboard() started.
+◇ Test invalidResamplingFactorsThrowInsteadOfTrapping() started.
+◇ Test pngRoundTripKeepsDimensions() started.
+✔ Test filenameCannotEscapeFolder() passed after 0.001 seconds.
+✔ Test unicodeFileNamesFitOnDiskAndTokensAreExpandedOnce() passed after 0.002 seconds.
+✔ Test pairedExportsNeverReplaceAProjectAcrossFormats() passed after 0.002 seconds.
+✔ Test invalidResamplingFactorsThrowInsteadOfTrapping() passed after 0.002 seconds.
+✔ Test pdfIsReadableAndRetinaResamplingHasExactDimensions() passed after 0.004 seconds.
+✔ Test pngRoundTripKeepsDimensions() passed after 0.004 seconds.
+✔ Test clipboardRoundTripUsesAnIsolatedPasteboard() passed after 0.006 seconds.
+✔ Test lateCopiesCannotReplaceNewerCopies() passed after 0.007 seconds.
+✔ Test automaticSaveNeverOverwritesExistingFile() passed after 0.007 seconds.
+✔ Test invalidCopyDoesNotClearExistingClipboard() passed after 0.007 seconds.
+✔ Suite ExportTests passed after 0.007 seconds.
+✔ Test run with 10 tests in 1 suite passed after 0.008 seconds.
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite EditorTests started.
+◇ Test selectionDeleteCanBeUndone() started.
+◇ Test explicitFlushSavesLatestEditBeforeDebounce() started.
+◇ Test gestureCommitsOnceAndUndoRemovesWholeStroke() started.
+◇ Test sliderDragPreviewsLiveAndRecordsOneUndoStep() started.
+◇ Test duplicateOffsetsAndSelectsTheCopy() started.
+◇ Test aContinuousDragKeepsProducingFrames() started.
+◇ Test zoomAtOneHundredPercentRendersEverySourcePixel() started.
+◇ Test selectedLayersLeaveTheRasterAndMoveWithoutRerendering() started.
+◇ Test restyleUpdatesTheToolAndTheSelection() started.
+◇ Test editingInvalidatesRedactionProposals() started.
+✔ Test explicitFlushSavesLatestEditBeforeDebounce() passed after 0.002 seconds.
+✔ Test selectionDeleteCanBeUndone() passed after 0.003 seconds.
+✔ Test duplicateOffsetsAndSelectsTheCopy() passed after 0.003 seconds.
+✔ Test gestureCommitsOnceAndUndoRemovesWholeStroke() passed after 0.003 seconds.
+✔ Test sliderDragPreviewsLiveAndRecordsOneUndoStep() passed after 0.003 seconds.
+✔ Test restyleUpdatesTheToolAndTheSelection() passed after 0.003 seconds.
+✔ Test editingInvalidatesRedactionProposals() passed after 0.005 seconds.
+✔ Test zoomAtOneHundredPercentRendersEverySourcePixel() passed after 0.029 seconds.
+✔ Test selectedLayersLeaveTheRasterAndMoveWithoutRerendering() passed after 0.145 seconds.
+✔ Test aContinuousDragKeepsProducingFrames() passed after 0.288 seconds.
+✔ Suite EditorTests passed after 0.288 seconds.
+✔ Test run with 10 tests in 1 suite passed after 0.288 seconds.
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite DocumentTests started.
+◇ Test projectRoundTripRetainsEditableLayers() started.
+◇ Test undoPreservesOriginalAndBranches() started.
+◇ Test rejectsFutureProjectVersion() started.
+◇ Test rejectsSubnormalScaleAndExplosiveAspectRatio() started.
+✔ Test undoPreservesOriginalAndBranches() passed after 0.001 seconds.
+✔ Test rejectsFutureProjectVersion() passed after 0.001 seconds.
+✔ Test rejectsSubnormalScaleAndExplosiveAspectRatio() passed after 0.001 seconds.
+✔ Test projectRoundTripRetainsEditableLayers() passed after 0.001 seconds.
+✔ Suite DocumentTests passed after 0.001 seconds.
+✔ Test run with 4 tests in 1 suite passed after 0.001 seconds.
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite DesignSystemTests started.
+◇ Test testReduceMotionDisablesTransition() started.
+◇ Test pinEdgesRespectAppKitCoordinates() started.
+◇ Test pinResizePreservesAspectAndOppositeCorner() started.
+◇ Test testWindowFitsSmallDisplayWithoutDiscardingContent() started.
+◇ Test pinResizeClampsWithoutFlippingAndFitsPortraitImages() started.
+✔ Test testWindowFitsSmallDisplayWithoutDiscardingContent() passed after 0.001 seconds.
+✔ Test testReduceMotionDisablesTransition() passed after 0.001 seconds.
+✔ Test pinResizeClampsWithoutFlippingAndFitsPortraitImages() passed after 0.001 seconds.
+✔ Test pinResizePreservesAspectAndOppositeCorner() passed after 0.001 seconds.
+✔ Test pinEdgesRespectAppKitCoordinates() passed after 0.001 seconds.
+✔ Suite DesignSystemTests passed after 0.001 seconds.
+✔ Test run with 5 tests in 1 suite passed after 0.001 seconds.
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite SelectionTests started.
+◇ Suite ScrollingTests started.
+◇ Suite PermissionTests started.
+◇ Test typedSelectionCanStillBeResizedBeforeEnterInQuickMode() started.
+◇ Test mismatchedSizesFailExplicitly() started.
+◇ Test reversedDragClampsToScreen() started.
+◇ Test defaultAreaWaitsForEnterAndCompletesOnlyOnce() started.
+◇ Test stitchesKnownVerticalOverlapWithoutRepeatingPixels() started.
+◇ Test retinaStitchRefinesAnOddPixelOffset() started.
+◇ Test stationaryFrameIsNotDuplicated() started.
+◇ Test releaseCapturesFinalPositionAndPreservesRetinaPixels() started.
+◇ Test retinaCropPreservesTopLeftAndClamps() started.
+◇ Test escapeDuringDragCancelsExactlyOnce() started.
+◇ Test zeroViewDoesNotDivideByZero() started.
+◇ Test releaseIgnoresClicksAndZeroAreaDrags() started.
+◇ Test testDeniedRequestDoesNotPretendToGrant() started.
+◇ Test testRefreshDetectsGrantAndRevocation() started.
+◇ Test testExistingAccessDoesNotPromptAgain() started.
+✔ Test reversedDragClampsToScreen() passed after 0.001 seconds.
+✔ Test zeroViewDoesNotDivideByZero() passed after 0.001 seconds.
+✔ Test retinaCropPreservesTopLeftAndClamps() passed after 0.001 seconds.
+✔ Test defaultAreaWaitsForEnterAndCompletesOnlyOnce() passed after 0.058 seconds.
+✔ Test typedSelectionCanStillBeResizedBeforeEnterInQuickMode() passed after 0.058 seconds.
+✔ Test escapeDuringDragCancelsExactlyOnce() passed after 0.058 seconds.
+✔ Test releaseIgnoresClicksAndZeroAreaDrags() passed after 0.058 seconds.
+✔ Test testRefreshDetectsGrantAndRevocation() passed after 0.058 seconds.
+✔ Test testDeniedRequestDoesNotPretendToGrant() passed after 0.058 seconds.
+✔ Test releaseCapturesFinalPositionAndPreservesRetinaPixels() passed after 0.058 seconds.
+✔ Test testExistingAccessDoesNotPromptAgain() passed after 0.058 seconds.
+✔ Suite SelectionTests passed after 0.058 seconds.
+✔ Suite PermissionTests passed after 0.058 seconds.
+✔ Test retinaStitchRefinesAnOddPixelOffset() passed after 0.086 seconds.
+✔ Test mismatchedSizesFailExplicitly() passed after 0.174 seconds.
+✔ Test stitchesKnownVerticalOverlapWithoutRepeatingPixels() passed after 0.216 seconds.
+✔ Test stationaryFrameIsNotDuplicated() passed after 0.227 seconds.
+✔ Suite ScrollingTests passed after 0.227 seconds.
+✔ Test run with 15 tests in 3 suites passed after 0.227 seconds.
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite LocalAITests started.
+◇ Test annotateTargetsRecognizedTextAndRejectsMissingLabels() started.
+◇ Test patchEraseRejectsAnEntireImageSelection() started.
+◇ Test csvQuotesCommasAndQuotesWithoutInventingValues() started.
+✔ Test patchEraseRejectsAnEntireImageSelection() passed after 0.002 seconds.
+✔ Test csvQuotesCommasAndQuotesWithoutInventingValues() passed after 0.002 seconds.
+✔ Test annotateTargetsRecognizedTextAndRejectsMissingLabels() passed after 0.003 seconds.
+✔ Suite LocalAITests passed after 0.003 seconds.
+✔ Test run with 3 tests in 1 suite passed after 0.003 seconds.

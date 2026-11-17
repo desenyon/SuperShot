@@ -1,0 +1,52 @@
+Building for production...
+[Computing dependencies]
+[Pre-planning 1 / 385]
+[Planning deferred tasks]
+[17 / 46] Document
+[20 / 48] DesignSystem
+[23 / 50] Export
+/Users/desenyon/Developer/SuperShot/Package.swift: Export: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[25 / 50] Recognition
+/Users/desenyon/Developer/SuperShot/Package.swift: Recognition: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[27 / 50] Document
+/Users/desenyon/Developer/SuperShot/Package.swift: Document: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[32 / 54] Render
+[34 / 55] DesignSystem
+/Users/desenyon/Developer/SuperShot/Package.swift: DesignSystem: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[42 / 63] Hotkeys
+[45 / 65] Render
+/Users/desenyon/Developer/SuperShot/Package.swift: Render: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[59 / 79] Library
+[61 / 81] Hotkeys
+/Users/desenyon/Developer/SuperShot/Package.swift: Hotkeys: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[66 / 85] Settings
+[68 / 86] Library
+/Users/desenyon/Developer/SuperShot/Package.swift: Library: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[70 / 86] Capture
+/Users/desenyon/Developer/SuperShot/Package.swift: Capture: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+/Users/desenyon/Developer/SuperShot/Package.swift: AI: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[77 / 85] Editor
+[78 / 86] Settings
+/Users/desenyon/Developer/SuperShot/Package.swift: Settings: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[87 / 93] Editor
+/Users/desenyon/Developer/SuperShot/Sources/Editor/EditorView.swift:287:17: warning: 'showsBaselineSeparator' was deprecated in macOS 15.0: No longer supported [#DeprecatedDeclaration]
+285 |         // An empty unified toolbar gives a taller title bar, which centers the window buttons on the tool palette.
+286 |         let toolbar = NSToolbar(identifier: "editor")
+287 |         toolbar.showsBaselineSeparator = false
+    |                 `- warning: 'showsBaselineSeparator' was deprecated in macOS 15.0: No longer supported [#DeprecatedDeclaration]
+288 |         window.toolbar = toolbar
+289 |         window.toolbarStyle = .unified
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+/Users/desenyon/Developer/SuperShot/Package.swift: Editor: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[95 / 97] SuperShot-product
+[96 / 98] SuperShot-product
+/Users/desenyon/Developer/SuperShot/Package.swift: SuperShot-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/desenyon/Developer/SuperShot/Package.swift: SuperShot-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[98 / 98] SuperShot-product
+[100 / 101] SuperShot-product
+Build complete! (23.03 sec)
+/Users/desenyon/Developer/SuperShot/dist/Updated/.bundle.IZi6fU/SuperShot.app: replacing existing signature
+/Users/desenyon/Developer/SuperShot/dist/Updated/.bundle.IZi6fU/SuperShot.app: valid on disk
+/Users/desenyon/Developer/SuperShot/dist/Updated/.bundle.IZi6fU/SuperShot.app: satisfies its Designated Requirement
+Built and signed /Users/desenyon/Developer/SuperShot/dist/Updated/SuperShot.app

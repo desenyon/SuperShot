@@ -1,0 +1,4 @@
+/Users/desenyon/Developer/SuperShot/Package.swift: Settings: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+/Users/desenyon/Developer/SuperShot/Package.swift: SuperShot-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/desenyon/Developer/SuperShot/Package.swift: SuperShot-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+Rendered previews to docs/previews
