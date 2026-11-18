@@ -18,11 +18,20 @@ import AppKit
         #expect(rep.colorAt(x: 4, y: 4)!.alphaComponent < 0.05)
         #expect(rep.colorAt(x: 512, y: 200)!.alphaComponent > 0.99)
     }
-    @Test func focusDotIsTheAccentBlueAndNeverPurple() {
+    @Test func tileIsBlueNeverPurpleAndTheCenterIsOpen() {
         let data = pixels(Brand.iconImage(size: 256), size: 256)
-        let center = (128 * 256 + 128) * 4
-        let (r, g, b) = (Int(data[center]), Int(data[center + 1]), Int(data[center + 2]))
-        #expect(b > 200 && b > r + 80 && g > r, "focus dot should read as blue, got \(r),\(g),\(b)")
+        for (x, y) in [(128, 128), (60, 200), (200, 60)] {
+            let i = (y * 256 + x) * 4
+            let (r, g, b) = (Int(data[i]), Int(data[i + 1]), Int(data[i + 2]))
+            #expect(b > 180 && b > r + 90 && g > r, "tile should read as blue at \(x),\(y), got \(r),\(g),\(b)")
+        }
+    }
+    @Test func glyphIsWhiteOnTheCornerArcs() {
+        let data = pixels(Brand.iconImage(size: 512), size: 512)
+        // Left edge of the viewfinder, just inside the top-left arc.
+        let side = 512 * 0.45, x = Int(256 - side / 2), y = Int(256 - side / 2 + side * 0.29)
+        let i = (y * 512 + x) * 4
+        #expect(data[i] > 230 && data[i + 1] > 230 && data[i + 2] > 230)
     }
     @Test func menuBarImageIsATemplateWithVisibleGlyph() {
         let image = Brand.menuBarImage()

@@ -1,71 +1,73 @@
 import SwiftUI
 import AppKit
 
-/// The one SuperShot logo: four rounded viewfinder corners around a focus dot.
+/// The one SuperShot logo: a bold white viewfinder of four rounded corner arcs on a Clear-blue tile.
 /// Every place the brand appears draws it from here, so the app icon, the in-app mark,
 /// and the menu bar item cannot drift apart.
 public enum Brand {
-    /// Tile and glyph colors. Graphite and a cool light blue; no purple.
-    public static let tileTop: UInt32 = 0x23262D, tileBottom: UInt32 = 0x0B0C0F
-    public static let glyphTop: UInt32 = 0xC9DCFF, glyphBottom: UInt32 = 0x8DB6FF
-    public static let focus: UInt32 = 0x2F7CF6
+    /// Tile gradient (top-left light to bottom-right deep) and glyph color. Blue only; no purple.
+    public static let tileLight: UInt32 = 0x5AA2FF, tileMid: UInt32 = 0x2F7CF6, tileDeep: UInt32 = 0x1456D9
+    public static let glyph: UInt32 = 0xFFFFFF
+
+    /// The viewfinder: a rounded square whose sides are cut away in the middle, leaving four corner arcs.
+    static func glyphPath(in rect: CGRect) -> CGPath {
+        let side = rect.width * 0.45
+        let square = CGRect(x: rect.midX - side / 2, y: rect.midY - side / 2, width: side, height: side)
+        let radius = side * 0.27, arm = side * 0.05
+        let path = CGMutablePath()
+        // Each corner: arm along one edge, quarter arc, arm along the other edge.
+        let corners: [(CGPoint, CGFloat, CGFloat)] = [(CGPoint(x: square.minX, y: square.minY), 1, 1), (CGPoint(x: square.maxX, y: square.minY), -1, 1),
+                                                      (CGPoint(x: square.maxX, y: square.maxY), -1, -1), (CGPoint(x: square.minX, y: square.maxY), 1, -1)]
+        for (corner, sx, sy) in corners {
+            path.move(to: CGPoint(x: corner.x, y: corner.y + sy * (radius + arm)))
+            path.addLine(to: CGPoint(x: corner.x, y: corner.y + sy * radius))
+            path.addArc(tangent1End: corner, tangent2End: CGPoint(x: corner.x + sx * radius, y: corner.y), radius: radius)
+            path.addLine(to: CGPoint(x: corner.x + sx * (radius + arm), y: corner.y))
+        }
+        return path
+    }
+    static func glyphLineWidth(in rect: CGRect) -> CGFloat { rect.width * 0.45 * 0.10 }
 
     /// Draws the glyph into `rect` (the full icon square) in the current CG context.
-    /// `monochrome` draws everything in `color` for template use (menu bar).
+    /// `monochrome` draws it in that color for template use (menu bar); `weight` scales the stroke.
     public static func drawGlyph(in rect: CGRect, context: CGContext, monochrome color: CGColor? = nil, weight: CGFloat = 1) {
-        let unit = rect.width / 1024
-        let inset = rect.insetBy(dx: 300 * unit, dy: 300 * unit)
-        let arm = 124 * unit, bend = 40 * unit
-        let path = CGMutablePath()
-        for (corner, sx, sy) in [(CGPoint(x: inset.minX, y: inset.minY), 1.0, 1.0), (CGPoint(x: inset.maxX, y: inset.minY), -1.0, 1.0),
-                                 (CGPoint(x: inset.minX, y: inset.maxY), 1.0, -1.0), (CGPoint(x: inset.maxX, y: inset.maxY), -1.0, -1.0)] {
-            path.move(to: CGPoint(x: corner.x, y: corner.y + sy * arm))
-            path.addLine(to: CGPoint(x: corner.x, y: corner.y + sy * bend))
-            path.addQuadCurve(to: CGPoint(x: corner.x + sx * bend, y: corner.y), control: corner)
-            path.addLine(to: CGPoint(x: corner.x + sx * arm, y: corner.y))
-        }
         context.saveGState()
-        context.setLineWidth(46 * unit * weight); context.setLineCap(.round); context.setLineJoin(.round)
-        let dot = CGRect(x: rect.midX - 34 * unit, y: rect.midY - 34 * unit, width: 68 * unit, height: 68 * unit)
-        if let color {
-            context.setStrokeColor(color); context.addPath(path); context.strokePath()
-            context.setFillColor(color); context.fillEllipse(in: dot)
-        } else {
-            context.addPath(path); context.replacePathWithStrokedPath(); context.clip()
-            let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: [cg(glyphTop), cg(glyphBottom)] as CFArray, locations: [0, 1])!
-            context.drawLinearGradient(gradient, start: CGPoint(x: rect.midX, y: inset.maxY), end: CGPoint(x: rect.midX, y: inset.minY), options: [])
-            context.resetClip()
-            context.setShadow(offset: .zero, blur: 40 * unit, color: cg(focus, alpha: 0.7))
-            context.setFillColor(cg(focus)); context.fillEllipse(in: dot)
+        context.setLineWidth(glyphLineWidth(in: rect) * weight); context.setLineCap(.round); context.setLineJoin(.round)
+        if color == nil {
+            context.setShadow(offset: CGSize(width: 0, height: -rect.width * 0.008), blur: rect.width * 0.03, color: cg(0x0A2A6B, alpha: 0.35))
         }
+        context.setStrokeColor(color ?? cg(glyph))
+        context.addPath(glyphPath(in: rect)); context.strokePath()
         context.restoreGState()
     }
 
-    /// The full app icon: rounded graphite tile with a soft top light, hairline edge, and glyph.
+    /// The full app icon: rounded blue tile with a diagonal gradient, soft top light, hairline edge, and glyph.
     /// Matches macOS icon geometry: an 824 pt tile centred in a 1024 pt canvas.
     public static func drawIcon(in rect: CGRect, context: CGContext) {
         let unit = rect.width / 1024
         let tile = rect.insetBy(dx: 100 * unit, dy: 100 * unit)
         let radius = 186 * unit
         let shape = CGPath(roundedRect: tile, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        let space = CGColorSpace(name: CGColorSpace.sRGB)
         context.saveGState()
-        context.setShadow(offset: CGSize(width: 0, height: -12 * unit), blur: 28 * unit, color: CGColor(gray: 0, alpha: 0.35))
-        context.addPath(shape); context.setFillColor(cg(tileBottom)); context.fillPath()
+        context.setShadow(offset: CGSize(width: 0, height: -10 * unit), blur: 24 * unit, color: CGColor(gray: 0, alpha: 0.3))
+        context.addPath(shape); context.setFillColor(cg(tileMid)); context.fillPath()
         context.restoreGState()
         context.saveGState()
         context.addPath(shape); context.clip()
-        let space = CGColorSpace(name: CGColorSpace.sRGB)
-        let body = CGGradient(colorsSpace: space, colors: [cg(tileTop), cg(tileBottom)] as CFArray, locations: [0, 1])!
-        context.drawLinearGradient(body, start: CGPoint(x: tile.midX, y: tile.maxY), end: CGPoint(x: tile.midX, y: tile.minY), options: [])
-        let light = CGGradient(colorsSpace: space, colors: [CGColor(gray: 1, alpha: 0.10), CGColor(gray: 1, alpha: 0)] as CFArray, locations: [0, 1])!
-        context.drawRadialGradient(light, startCenter: CGPoint(x: tile.midX, y: tile.maxY), startRadius: 0,
-                                   endCenter: CGPoint(x: tile.midX, y: tile.maxY), endRadius: tile.height * 0.9, options: [])
+        let body = CGGradient(colorsSpace: space, colors: [cg(tileLight), cg(tileMid), cg(tileDeep)] as CFArray, locations: [0, 0.48, 1])!
+        context.drawLinearGradient(body, start: CGPoint(x: tile.minX, y: tile.maxY), end: CGPoint(x: tile.maxX, y: tile.minY), options: [])
+        let light = CGGradient(colorsSpace: space, colors: [CGColor(gray: 1, alpha: 0.22), CGColor(gray: 1, alpha: 0)] as CFArray, locations: [0, 1])!
+        context.drawRadialGradient(light, startCenter: CGPoint(x: tile.midX - tile.width * 0.18, y: tile.maxY + tile.height * 0.05), startRadius: 0,
+                                   endCenter: CGPoint(x: tile.midX - tile.width * 0.18, y: tile.maxY + tile.height * 0.05), endRadius: tile.height * 0.85, options: [])
+        let floor = CGGradient(colorsSpace: space, colors: [CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 0.16)] as CFArray, locations: [0, 1])!
+        context.drawLinearGradient(floor, start: CGPoint(x: tile.midX, y: tile.midY), end: CGPoint(x: tile.midX, y: tile.minY), options: [])
         context.restoreGState()
         context.saveGState()
-        context.addPath(CGPath(roundedRect: tile.insetBy(dx: unit * 1.5, dy: unit * 1.5), cornerWidth: radius, cornerHeight: radius, transform: nil))
-        context.setStrokeColor(CGColor(gray: 1, alpha: 0.12)); context.setLineWidth(3 * unit); context.strokePath()
+        context.addPath(CGPath(roundedRect: tile.insetBy(dx: unit * 2, dy: unit * 2), cornerWidth: radius - unit * 2, cornerHeight: radius - unit * 2, transform: nil))
+        context.setStrokeColor(CGColor(gray: 1, alpha: 0.22)); context.setLineWidth(4 * unit); context.strokePath()
         context.restoreGState()
-        drawGlyph(in: tile.insetBy(dx: -100 * unit, dy: -100 * unit), context: context)
+        drawGlyph(in: rect, context: context)
     }
 
     /// The app icon as an image, for the bundle's .icns and in-app marks.
@@ -80,9 +82,9 @@ public enum Brand {
     public static func menuBarImage(size: CGFloat = 18) -> NSImage {
         let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
-            // Enlarge the glyph to fill the menu bar square, and thicken it for legibility at 18 pt.
-            drawGlyph(in: rect.insetBy(dx: -rect.width * 0.36, dy: -rect.height * 0.36), context: context,
-                      monochrome: CGColor(gray: 0, alpha: 1), weight: 1.25)
+            // Enlarge the glyph to fill the menu bar square, and keep the stroke legible at 18 pt.
+            drawGlyph(in: rect.insetBy(dx: -rect.width * 0.55, dy: -rect.height * 0.55), context: context,
+                      monochrome: CGColor(gray: 0, alpha: 1), weight: 0.85)
             return true
         }
         image.isTemplate = true
