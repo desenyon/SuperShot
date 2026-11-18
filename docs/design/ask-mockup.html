@@ -1,0 +1,443 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SuperShot Ask</title>
+<style>
+  :root { color-scheme: light dark; }
+  .bar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0 0 14px; font-family:var(--font-sans); }
+  .bar .label { font-size:13px; color:var(--muted-foreground); }
+  .seg { display:inline-flex; padding:2px; border-radius:9px; background:var(--secondary); border:1px solid var(--border); }
+  .seg button { font:500 12px var(--font-sans); color:var(--muted-foreground); background:none; border:0; padding:5px 12px; border-radius:7px; cursor:pointer; }
+  .seg button[aria-pressed="true"] { background:var(--card); color:var(--foreground); box-shadow:0 1px 2px rgba(0,0,0,.15); }
+  .caption { font:600 13px var(--font-sans); color:var(--foreground); margin:22px 0 4px; }
+  .caption + p { font:13px/1.5 var(--font-sans); color:var(--muted-foreground); margin:0 0 10px; }
+  .wrap { position:relative; width:100%; overflow:hidden; border-radius:var(--radius); }
+  .frame { position:absolute; left:0; top:0; width:1280px; transform-origin:0 0; overflow:hidden;
+           font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif; -webkit-font-smoothing:antialiased; }
+
+  /* SuperShot tokens (mirrors DS) */
+  .frame { --accent:#2F7CF6; --accentInk:#6AA6FF; --accentSoft:rgba(47,124,246,.16);
+           --bg:#0c0c0f; --wall:radial-gradient(1200px 700px at 20% 10%, #2a2d3a 0%, #15161c 55%, #0c0c0f 100%);
+           --glass:rgba(30,30,35,.74); --glassEdge:rgba(255,255,255,.09); --glassHi:rgba(255,255,255,.06);
+           --ink:#f2f2f5; --ink2:rgba(235,235,245,.62); --ink3:rgba(235,235,245,.38);
+           --card:rgba(255,255,255,.055); --hover:rgba(255,255,255,.08); --hair:rgba(255,255,255,.08);
+           --shadow:0 18px 50px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.35);
+           --field:rgba(255,255,255,.06);
+           --prefSide:#1d1d20; --prefBg:#161618; --prefGroup:#232326; --prefSel:rgba(255,255,255,.10); --prefOn:#9a9aa0; --prefBtn:rgba(255,255,255,.10);
+           background:var(--bg); color:var(--ink); }
+  .frame[data-theme="light"] { --accentInk:#1F6AE0; --accentSoft:rgba(47,124,246,.12);
+           --bg:#e8e9ee; --wall:radial-gradient(1200px 700px at 20% 10%, #f5f6fa 0%, #dfe1e8 60%, #d4d6de 100%);
+           --glass:rgba(255,255,255,.78); --glassEdge:rgba(0,0,0,.08); --glassHi:rgba(255,255,255,.7);
+           --ink:#1c1c1e; --ink2:rgba(60,60,67,.66); --ink3:rgba(60,60,67,.40);
+           --card:rgba(0,0,0,.04); --hover:rgba(0,0,0,.06); --hair:rgba(0,0,0,.08);
+           --shadow:0 18px 50px rgba(20,22,40,.16), 0 2px 6px rgba(20,22,40,.08);
+           --field:rgba(0,0,0,.045);
+           --prefSide:#ececee; --prefBg:#f6f6f7; --prefGroup:#ffffff; --prefSel:rgba(0,0,0,.08); --prefOn:#6e6e73; --prefBtn:rgba(0,0,0,.06); }
+
+  .glass { background:var(--glass); backdrop-filter:blur(28px) saturate(1.6); -webkit-backdrop-filter:blur(28px) saturate(1.6);
+           border:1px solid var(--glassEdge); box-shadow:var(--shadow), inset 0 1px 0 var(--glassHi); }
+  .mono { font-family:"SF Mono", ui-monospace, Menlo, monospace; font-variant-numeric:tabular-nums; }
+  svg.i { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+  .ib { width:30px; height:30px; border-radius:8px; display:grid; place-items:center; color:var(--ink2); }
+  .ib.on { background:var(--accent); color:#fff; }
+  .ib.hov { background:var(--hover); color:var(--ink); }
+
+  /* fake captured app */
+  .shot { background:#f6f4ef; color:#24262b; border-radius:10px; overflow:hidden; font-family:-apple-system, system-ui, sans-serif; }
+  .shot .nav { height:44px; display:flex; align-items:center; padding:0 22px; background:#ecebe6; font-size:12px; font-weight:600; letter-spacing:.06em; }
+  .shot .nav span { margin-left:auto; font-weight:500; letter-spacing:0; display:flex; gap:18px; color:#4a4c52; }
+  .shot h1 { font-size:26px; margin:26px 26px 6px; letter-spacing:-.01em; }
+  .shot .sub { margin:0 26px 18px; color:#6b6d73; font-size:13px; }
+  .shot .err { margin:0 26px 16px; padding:12px 14px; border-radius:8px; background:#fdecea; color:#8a1f17; border:1px solid #f5c6c0; font-size:12.5px; display:flex; gap:10px; align-items:flex-start; }
+  .shot .err b { display:block; font-size:13px; margin-bottom:2px; }
+  .shot .row { margin:0 26px; display:flex; justify-content:space-between; padding:11px 0; border-bottom:1px solid #e3e1db; font-size:13px; }
+  .shot .row i { font-style:normal; color:#6b6d73; }
+  .shot .btn { margin:18px 26px 26px; display:inline-block; background:#3b4a5a; color:#fff; font-size:12.5px; padding:8px 14px; border-radius:6px; }
+
+  /* chat panel */
+  .chat { position:absolute; border-radius:20px; display:flex; flex-direction:column; overflow:hidden; }
+  .chat header { display:flex; align-items:center; gap:10px; padding:14px 14px 12px 16px; }
+  .chat header .t { font-size:15px; font-weight:600; }
+  .pill { display:inline-flex; align-items:center; gap:6px; font-size:11.5px; color:var(--ink2); padding:4px 9px 4px 7px; border-radius:99px; background:var(--card); }
+  .pill .dot { width:14px; height:14px; border-radius:4px; display:grid; place-items:center; background:var(--hover); color:var(--ink); }
+  .chat .body { flex:1; padding:4px 16px 8px; display:flex; flex-direction:column; gap:14px; overflow:hidden; font-size:13px; line-height:1.5; }
+  .ctx { display:flex; gap:10px; align-items:center; padding:8px; border-radius:12px; background:var(--card); }
+  .ctx .thumb { width:56px; height:36px; border-radius:6px; overflow:hidden; flex:none; background:#f6f4ef; position:relative; }
+  .ctx .thumb::before { content:""; position:absolute; left:4px; right:4px; top:11px; height:6px; background:#f5c6c0; border-radius:2px; }
+  .ctx .thumb::after { content:""; position:absolute; left:4px; width:30px; top:4px; height:3px; background:#3b3d44; border-radius:2px; box-shadow:0 18px 0 #cfcdc7, 0 23px 0 #cfcdc7; }
+  .ctx .meta { font-size:12px; color:var(--ink2); line-height:1.35; }
+  .ctx .meta b { color:var(--ink); font-weight:500; display:block; font-size:12.5px; }
+  .me { align-self:flex-end; max-width:82%; background:var(--hover); padding:8px 12px; border-radius:14px 14px 4px 14px; }
+  .ai p { margin:0 0 8px; }
+  .ai ol { margin:0 0 8px; padding-left:18px; }
+  .ai li { margin:2px 0; }
+  .ai code { font-family:"SF Mono", ui-monospace, Menlo, monospace; font-size:11.5px; padding:1px 5px; border-radius:5px; background:var(--card); }
+  .acts { display:flex; gap:2px; margin-top:2px; }
+  .acts span { display:inline-flex; align-items:center; gap:5px; font-size:11.5px; color:var(--ink2); padding:4px 7px; border-radius:7px; }
+  .acts span.hov { background:var(--hover); color:var(--ink); }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; padding:0 16px 10px; }
+  .chip { font-size:12px; padding:6px 10px; border-radius:99px; border:1px solid var(--hair); color:var(--ink); background:var(--card); }
+  .composer { margin:0 12px 12px; border-radius:14px; background:var(--field); border:1px solid var(--hair); padding:10px 10px 8px 12px; }
+  .composer .ph { font-size:13px; color:var(--ink3); min-height:20px; }
+  .composer .ph.typed { color:var(--ink); }
+  .composer .row { display:flex; align-items:center; gap:4px; margin-top:6px; }
+  .composer .row .sp { flex:1; }
+  .send { width:28px; height:28px; border-radius:99px; background:var(--accent); color:#fff; display:grid; place-items:center; }
+  .send.off { background:var(--hover); color:var(--ink3); }
+  .foot { font-size:11px; color:var(--ink3); padding:0 16px 12px; display:flex; justify-content:space-between; }
+  .regchip { display:inline-flex; align-items:center; gap:5px; font-size:11.5px; padding:3px 8px 3px 6px; border-radius:7px; background:var(--accentSoft); color:var(--accentInk); margin-bottom:6px; }
+  .caret { display:inline-block; width:7px; height:14px; background:var(--ink2); vertical-align:-2px; border-radius:1px; margin-left:2px; opacity:.7; }
+
+  /* thumbnail */
+  .qthumb { position:absolute; width:236px; height:152px; border-radius:14px; overflow:hidden; box-shadow:var(--shadow); border:1px solid var(--glassEdge); background:#f6f4ef; }
+  .qthumb .mini { transform:scale(.27); transform-origin:0 0; width:874px; }
+  .qthumb .hovbar { position:absolute; left:8px; right:8px; bottom:8px; display:flex; gap:4px; padding:4px; border-radius:11px; justify-content:space-between; }
+  .qthumb .hovbar .ib { width:30px; height:28px; color:var(--ink); }
+  .qthumb .ring { position:absolute; inset:0; border-radius:14px; box-shadow:inset 0 0 0 2px var(--accent); pointer-events:none; }
+
+  /* editor chrome */
+  .capsule { position:absolute; border-radius:99px; display:flex; align-items:center; gap:2px; padding:5px; }
+  .sep { width:1px; height:18px; background:var(--hair); margin:0 4px; }
+  .panel { position:absolute; border-radius:20px; }
+  .panel h3 { font-size:15px; margin:0; font-weight:600; }
+  .btnP { background:var(--accent); color:#fff; font-size:13px; font-weight:600; padding:7px 14px; border-radius:99px; display:inline-flex; gap:6px; align-items:center; }
+  .btnN { background:var(--hover); color:var(--ink); font-size:13px; font-weight:500; padding:7px 12px; border-radius:8px; display:inline-flex; gap:6px; align-items:center; }
+  .dash { position:absolute; border:1.5px dashed var(--accent); border-radius:6px; background:rgba(47,124,246,.08); }
+  .dash .tag { position:absolute; left:-1px; top:-24px; background:var(--accent); color:#fff; font-size:11px; font-weight:600; padding:3px 7px; border-radius:6px; white-space:nowrap; }
+  .handle { position:absolute; width:8px; height:8px; background:#fff; border:1.5px solid var(--accent); border-radius:2px; }
+
+  /* settings */
+  .prefs { position:absolute; inset:0; display:flex; background:var(--prefBg); }
+  .prefs aside { width:220px; background:var(--prefSide); padding:46px 10px 10px; border-right:1px solid var(--hair); }
+  .prefs aside .it { display:flex; align-items:center; gap:9px; font-size:13px; padding:6px 9px; border-radius:7px; color:var(--ink); }
+  .prefs aside .it svg { color:var(--ink2); }
+  .prefs aside .it.sel { background:var(--prefSel); }
+  .prefs main { flex:1; padding:22px 34px; overflow:hidden; }
+  .prefs h2 { font-size:20px; margin:0 0 16px; font-weight:600; letter-spacing:-.01em; }
+  .gl { font-size:12px; color:var(--ink2); margin:18px 2px 6px; font-weight:500; }
+  .grp { background:var(--prefGroup); border-radius:12px; border:1px solid var(--hair); overflow:hidden; }
+  .pr { display:flex; align-items:center; gap:12px; padding:10px 14px; min-height:24px; font-size:13px; }
+  .pr + .pr { border-top:1px solid var(--hair); }
+  .pr .tx { flex:1; }
+  .pr .tx small { display:block; color:var(--ink2); font-size:11.5px; margin-top:1px; }
+  .radio { width:16px; height:16px; border-radius:99px; border:1.5px solid var(--ink3); flex:none; position:relative; }
+  .radio.on { border-color:var(--prefOn); }
+  .radio.on::after { content:""; position:absolute; inset:3px; border-radius:99px; background:var(--prefOn); }
+  .tog { width:32px; height:19px; border-radius:99px; background:var(--hover); position:relative; flex:none; }
+  .tog::after { content:""; position:absolute; top:2px; left:2px; width:15px; height:15px; border-radius:99px; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.3); }
+  .tog.on { background:var(--prefOn); }
+  .tog.on::after { left:15px; }
+  .pbtn { font-size:12.5px; padding:4px 11px; border-radius:6px; background:var(--prefBtn); color:var(--ink); border:1px solid var(--hair); white-space:nowrap; }
+  .pop { font-size:12.5px; padding:4px 8px 4px 10px; border-radius:6px; background:var(--prefBtn); border:1px solid var(--hair); display:inline-flex; gap:8px; align-items:center; }
+  .meter { width:120px; height:5px; border-radius:99px; background:var(--hover); overflow:hidden; }
+  .meter i { display:block; height:100%; width:18%; background:var(--prefOn); border-radius:99px; }
+  .key { font-family:"SF Mono", ui-monospace, monospace; font-size:12px; padding:3px 8px; border-radius:6px; background:var(--prefBtn); border:1px solid var(--hair); }
+  .logo { width:22px; height:22px; border-radius:6px; display:grid; place-items:center; background:var(--hover); color:var(--ink); flex:none; }
+
+  /* state cards */
+  .state { position:absolute; top:60px; width:360px; height:500px; }
+  .state .center { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:0 30px; gap:10px; }
+  .state .big { width:44px; height:44px; border-radius:12px; display:grid; place-items:center; background:var(--card); color:var(--ink); }
+  .state .big svg { width:22px; height:22px; }
+  .state h4 { margin:4px 0 0; font-size:15px; font-weight:600; }
+  .state .center p { margin:0; font-size:12.5px; color:var(--ink2); line-height:1.5; }
+  .notice { margin:0 12px 10px; padding:12px; border-radius:14px; background:var(--card); border:1px solid var(--hair); font-size:12.5px; line-height:1.45; }
+  .notice .h { display:flex; gap:8px; align-items:center; font-weight:600; margin-bottom:4px; }
+  .notice p { margin:0 0 10px; color:var(--ink2); }
+  .notice .b { display:flex; gap:6px; justify-content:flex-end; }
+  .stlabel { position:absolute; top:24px; font-size:12px; color:var(--ink2); font-weight:500; }
+  .lim { height:5px; border-radius:99px; background:var(--hover); overflow:hidden; width:180px; }
+  .lim i { display:block; height:100%; width:100%; background:var(--ink3); }
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <span class="label">Mockup appearance</span>
+  <div class="seg" role="group" aria-label="Appearance">
+    <button type="button" data-set="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-set="light" aria-pressed="false">Light</button>
+  </div>
+</div>
+
+<div class="caption">1. Ask beside the quick-access thumbnail</div>
+<p>The thumbnail gets an Ask button. The chat opens as a glass panel attached to the thumbnail, away from the screen edge, and the thumbnail stays put while it is open.</p>
+<div class="wrap" data-h="800"><div class="frame" data-theme="dark" style="height:800px">
+  <div style="position:absolute;inset:0;background:var(--wall)"></div>
+  <!-- background app window -->
+  <div class="shot" style="position:absolute;left:70px;top:70px;width:640px;box-shadow:var(--shadow);opacity:.9">
+    <div class="nav">FIELDNOTES <span><em style="font-style:normal">Workspace</em><em style="font-style:normal">Billing</em><em style="font-style:normal">Archive</em></span></div>
+    <h1>Billing</h1><div class="sub">Plan, payment method, and invoices.</div>
+    <div class="err"><span style="font-size:15px;line-height:1">⚠︎</span><div><b>We couldn't renew your plan.</b>Error R-402: card verification failed. Update your payment method to keep your workspace active.</div></div>
+    <div class="row"><span>Plan</span><i>Team · 8 seats</i></div>
+    <div class="row"><span>Payment method</span><i>Visa ending 4242 · expires 09/26</i></div>
+    <div class="row"><span>Next invoice</span><i>Dec 1, 2026 · $96.00</i></div>
+    <div class="btn">Update payment method</div>
+  </div>
+
+  <!-- chat panel -->
+  <div class="chat glass" style="right:288px;bottom:28px;width:380px;height:600px">
+    <header>
+      <span class="t">Ask</span>
+      <span class="pill"><span class="dot" data-i="openai" data-s="10"></span>ChatGPT</span>
+      <span style="flex:1"></span>
+      <span class="ib" data-i="dots"></span><span class="ib" data-i="x"></span>
+    </header>
+    <div class="body">
+      <div class="ctx"><div class="thumb"></div><div class="meta"><b>Fieldnotes · Billing</b><span class="mono">1280 × 920</span> · captured just now</div></div>
+      <div class="me">What does this error mean, and what should I do?</div>
+      <div class="ai">
+        <p>The renewal failed because your bank rejected the card check. <code>R-402</code> is Fieldnotes' code for a failed verification, not for a lack of funds.</p>
+        <ol>
+          <li>Check that the expiry <b>09/26</b> and billing address match your bank's records.</li>
+          <li>Click <b>Update payment method</b> and enter the card again.</li>
+          <li>If it fails again, your bank may be blocking the charge. Approve it in your bank's app.</li>
+        </ol>
+        <div class="acts"><span class="hov"><svg class="i" data-p="copy"></svg>Copy</span><span><svg class="i" data-p="textlayer"></svg>Add as text</span><span><svg class="i" data-p="target"></svg>Show on image</span></div>
+      </div>
+    </div>
+    <div class="chips"><span class="chip">Write a support reply</span><span class="chip">Translate</span><span class="chip">Alt text</span></div>
+    <div class="composer">
+      <div class="ph">Ask a follow-up…</div>
+      <div class="row"><span class="ib" title="Ask about a region" data-i="region"></span><span class="ib" data-i="text"></span><span class="sp"></span><span class="send off" data-i="up"></span></div>
+    </div>
+    <div class="foot"><span>Uses your ChatGPT plan via Codex</span><span class="mono">18% of weekly limit</span></div>
+  </div>
+
+  <!-- quick-access thumbnail -->
+  <div class="qthumb" style="right:28px;bottom:28px">
+    <div class="mini"><div class="shot" style="border-radius:0">
+      <div class="nav">FIELDNOTES</div><h1>Billing</h1><div class="sub">Plan, payment method, and invoices.</div>
+      <div class="err"><div><b>We couldn't renew your plan.</b>Error R-402: card verification failed.</div></div>
+      <div class="row"><span>Plan</span><i>Team</i></div><div class="row"><span>Payment</span><i>Visa 4242</i></div>
+    </div></div>
+    <div class="ring"></div>
+    <div class="hovbar glass">
+      <span class="ib" data-i="copy"></span><span class="ib" data-i="save"></span><span class="ib" data-i="pin"></span><span class="ib on" data-i="bubble"></span><span class="ib" data-i="trash"></span>
+    </div>
+  </div>
+</div></div>
+
+<div class="caption">2. Ask inside the editor</div>
+<p>Ask becomes a fifth tab in the right panel. Press ⌘ and drag on the canvas to attach a region to the question. "Show on image" outlines the part of the image an answer refers to.</p>
+<div class="wrap" data-h="800"><div class="frame" data-theme="dark" style="height:800px">
+  <div style="position:absolute;inset:0;background:var(--bg)"></div>
+  <!-- canvas capture -->
+  <div class="shot" style="position:absolute;left:160px;top:150px;width:600px;box-shadow:0 20px 60px rgba(0,0,0,.45)">
+    <div class="nav">FIELDNOTES <span><em style="font-style:normal">Workspace</em><em style="font-style:normal">Billing</em></span></div>
+    <h1>Billing</h1><div class="sub">Plan, payment method, and invoices.</div>
+    <div class="err"><span style="font-size:15px;line-height:1">⚠︎</span><div><b>We couldn't renew your plan.</b>Error R-402: card verification failed. Update your payment method to keep your workspace active.</div></div>
+    <div class="row"><span>Plan</span><i>Team · 8 seats</i></div>
+    <div class="row"><span>Payment method</span><i>Visa ending 4242 · expires 09/26</i></div>
+    <div class="row"><span>Next invoice</span><i>Dec 1, 2026 · $96.00</i></div>
+    <div class="btn">Update payment method</div>
+  </div>
+  <div class="dash" style="left:660px;top:447px;width:92px;height:26px"><span class="tag" style="top:auto;bottom:-25px">Region 1</span>
+    <span class="handle" style="left:-5px;top:-5px"></span><span class="handle" style="right:-5px;top:-5px"></span><span class="handle" style="left:-5px;bottom:-5px"></span><span class="handle" style="right:-5px;bottom:-5px"></span></div>
+
+  <!-- top tool capsule -->
+  <div class="capsule glass" style="left:452px;transform:translateX(-50%);top:16px">
+    <span class="ib on" data-i="pointer"></span><span class="ib" data-i="crop"></span><span class="sep"></span>
+    <span class="ib" data-i="arrow"></span><span class="ib" data-i="rect"></span><span class="ib" data-i="oval"></span><span class="ib" data-i="line"></span><span class="sep"></span>
+    <span class="ib" data-i="text"></span><span class="ib" data-i="counter"></span><span class="ib" data-i="pen"></span><span class="sep"></span>
+    <span class="ib" data-i="drop"></span><span class="ib" data-i="grid"></span><span class="ib" data-i="eraser"></span><span class="sep"></span>
+    <span class="ib" data-i="zoom"></span><span class="ib" data-i="ruler"></span>
+  </div>
+  <!-- right panel switcher -->
+  <div class="capsule glass" style="right:16px;top:16px">
+    <span class="ib" data-i="textscan"></span><span class="ib" data-i="sparkle"></span><span class="ib on" data-i="bubble"></span><span class="ib" data-i="layers"></span><span class="ib" data-i="info"></span>
+  </div>
+
+  <!-- ask panel -->
+  <div class="chat glass" style="right:16px;top:70px;width:360px;bottom:72px">
+    <header>
+      <span class="t">Ask</span>
+      <span class="pill"><span class="dot" data-i="openai" data-s="10"></span>ChatGPT</span>
+      <span style="flex:1"></span>
+      <span class="ib" data-i="dots"></span><span class="ib" data-i="x"></span>
+    </header>
+    <div class="body">
+      <div class="me"><div class="regchip"><svg class="i" data-p="region" style="width:12px;height:12px"></svg>Region 1 · <span class="mono">212 × 52</span></div><br>Is this expiry date the problem?</div>
+      <div class="ai">
+        <p>Probably not. <b>09/26</b> is a valid future date, and an expired card would show its own error.</p>
+        <p>R-402 usually means the bank rejected the check itself: a billing address mismatch, a wrong CVC, or a block on online payments. Re-entering the card with the exact address on your statement fixes it most often.</p>
+        <div class="acts"><span><svg class="i" data-p="copy"></svg>Copy</span><span><svg class="i" data-p="textlayer"></svg>Add as text</span><span class="hov"><svg class="i" data-p="target"></svg>Show on image</span></div>
+      </div>
+    </div>
+    <div class="composer">
+      <div class="ph typed">Write a short note for my team</div>
+      <div class="row"><span class="ib hov" data-i="region"></span><span class="ib" data-i="text"></span><span class="sp"></span><span class="send" data-i="up"></span></div>
+    </div>
+    <div class="foot"><span>Image and recognized text are sent</span><span class="mono">⌘↩ send</span></div>
+  </div>
+
+  <!-- bottom capsules -->
+  <div class="capsule glass" style="left:16px;bottom:16px;padding-right:12px">
+    <span class="ib" data-i="doc"></span><span class="sep"></span><span class="ib" data-i="undo"></span><span class="ib" data-i="redo"></span><span class="sep"></span>
+    <span style="font-size:13px;margin:0 8px 0 4px">Fieldnotes</span><span class="mono" style="font-size:12px;color:var(--ink2);background:var(--card);padding:4px 8px;border-radius:7px">1280 × 920</span>
+  </div>
+  <div class="capsule glass" style="left:452px;transform:translateX(-50%);bottom:16px">
+    <span class="ib" data-i="minus"></span><span class="mono" style="font-size:12.5px;padding:0 8px">Fit</span><span class="ib" data-i="plus"></span>
+  </div>
+  <div class="capsule glass" style="right:392px;bottom:16px">
+    <span class="ib" data-i="pin"></span><span class="ib" data-i="share"></span><span class="sep"></span>
+    <span class="btnN" style="background:transparent"><svg class="i" data-p="copy"></svg>Copy</span><span class="btnP">Save</span>
+  </div>
+</div></div>
+
+<div class="caption">3. Settings → Assistant</div>
+<p>A new graphite Settings page. ChatGPT is listed first; Claude is the second choice. Sign-in happens in the browser through each tool's own login, and SuperShot never sees a password or token.</p>
+<div class="wrap" data-h="880"><div class="frame" data-theme="dark" style="height:880px">
+  <div class="prefs">
+    <aside>
+      <div class="it"><svg class="i" data-p="gear"></svg>General</div>
+      <div class="it"><svg class="i" data-p="region"></svg>Capture</div>
+      <div class="it"><svg class="i" data-p="save"></svg>Output</div>
+      <div class="it"><svg class="i" data-p="pin"></svg>Pins &amp; previews</div>
+      <div class="it"><svg class="i" data-p="keyboard"></svg>Shortcuts</div>
+      <div class="it"><svg class="i" data-p="library"></svg>Library</div>
+      <div class="it"><svg class="i" data-p="hand"></svg>Privacy</div>
+      <div class="it sel"><svg class="i" data-p="bubble"></svg>Assistant</div>
+    </aside>
+    <main>
+      <h2>Assistant</h2>
+      <div class="gl">Provider</div>
+      <div class="grp">
+        <div class="pr"><span class="radio on"></span><span class="logo" data-i="openai" data-s="13"></span><div class="tx">ChatGPT<small>Uses your ChatGPT plan through Codex on this Mac</small></div><span class="mono" style="font-size:11.5px;color:var(--ink2)">Codex 0.169.0</span></div>
+        <div class="pr"><span class="radio"></span><span class="logo" data-i="claude" data-s="13"></span><div class="tx">Claude<small>Uses your Claude plan through Claude Code on this Mac</small></div><span class="mono" style="font-size:11.5px;color:var(--ink2)">Claude Code 2.1.325</span></div>
+        <div class="pr"><span class="radio"></span><span class="logo" data-i="off" data-s="13"></span><div class="tx">Off<small>Hide Ask everywhere</small></div></div>
+      </div>
+
+      <div class="gl">Account</div>
+      <div class="grp">
+        <div class="pr"><div class="tx">Signed in as you@example.com<small>ChatGPT Plus</small></div><span class="pbtn">Sign out</span></div>
+        <div class="pr"><div class="tx">Weekly usage<small>Resets Monday</small></div><span class="mono" style="font-size:12px;color:var(--ink2)">18%</span><div class="meter"><i></i></div></div>
+        <div class="pr"><div class="tx">Model</div><span class="pop">Default <svg class="i" data-p="chev" style="width:12px;height:12px"></svg></span></div>
+      </div>
+
+      <div class="gl">Before sending</div>
+      <div class="grp">
+        <div class="pr"><div class="tx">Ask before sending a capture<small>Shown once per conversation</small></div><span class="tog on"></span></div>
+        <div class="pr"><div class="tx">Include recognized text<small>Sends on-device OCR alongside the image for better answers</small></div><span class="tog on"></span></div>
+        <div class="pr"><div class="tx">Hide sensitive details first<small>Blurs emails, keys, and faces found by Smart redact before upload</small></div><span class="tog"></span></div>
+      </div>
+
+      <div class="gl">Conversations</div>
+      <div class="grp">
+        <div class="pr"><div class="tx">Keep conversations with captures<small>Saved in History and searchable. Deleted with the capture.</small></div><span class="tog on"></span></div>
+        <div class="pr"><div class="tx">Ask about last capture</div><span class="key">⌥⇧A</span></div>
+      </div>
+    </main>
+  </div>
+</div></div>
+
+<div class="caption">4. Panel states</div>
+<p>Sign-in, the upload confirmation, and a reached usage limit all appear inside the same panel, so the user never has to go to Settings mid-question.</p>
+<div class="wrap" data-h="600"><div class="frame" data-theme="dark" style="height:600px">
+  <div style="position:absolute;inset:0;background:var(--wall)"></div>
+
+  <span class="stlabel" style="left:40px">Not signed in</span>
+  <div class="chat glass state" style="left:40px">
+    <header><span class="t">Ask</span><span style="flex:1"></span><span class="ib" data-i="x"></span></header>
+    <div class="center">
+      <div class="big" data-i="openai" data-s="22"></div>
+      <h4>Sign in with ChatGPT</h4>
+      <p>Ask questions about your captures using your ChatGPT plan. Sign-in opens in your browser.</p>
+      <span class="btnP" style="margin-top:8px">Sign in with ChatGPT</span>
+      <span style="font-size:12px;color:var(--ink2);margin-top:4px">Use Claude instead</span>
+    </div>
+    <div class="foot" style="justify-content:center"><span>Codex not installed? <u>How to install</u></span></div>
+  </div>
+
+  <span class="stlabel" style="left:460px">First question in a conversation</span>
+  <div class="chat glass state" style="left:460px">
+    <header><span class="t">Ask</span><span class="pill"><span class="dot" data-i="openai" data-s="10"></span>ChatGPT</span><span style="flex:1"></span><span class="ib" data-i="x"></span></header>
+    <div class="body">
+      <div class="ctx"><div class="thumb"></div><div class="meta"><b>Fieldnotes · Billing</b><span class="mono">1280 × 920</span> · captured just now</div></div>
+      <div class="me">What does this error mean?</div>
+    </div>
+    <div class="notice">
+      <div class="h"><svg class="i" data-p="up"></svg>Send this capture to OpenAI?</div>
+      <p>The image and its recognized text go to ChatGPT through Codex. Smart redact found 1 email address.</p>
+      <div class="b"><span class="btnN">Hide it, then send</span><span class="btnP">Send</span></div>
+    </div>
+    <div class="composer"><div class="ph">Ask a follow-up…</div><div class="row"><span class="ib" data-i="region"></span><span class="sp"></span><span class="send off" data-i="up"></span></div></div>
+  </div>
+
+  <span class="stlabel" style="left:880px">Usage limit reached</span>
+  <div class="chat glass state" style="left:880px">
+    <header><span class="t">Ask</span><span class="pill"><span class="dot" data-i="openai" data-s="10"></span>ChatGPT</span><span style="flex:1"></span><span class="ib" data-i="x"></span></header>
+    <div class="center">
+      <div class="big" data-i="clock" data-s="22"></div>
+      <h4>Weekly limit reached</h4>
+      <p>Your ChatGPT plan resets on <b>Monday at 9:00</b>. Recognized text, copying, and smart tools still work on this Mac.</p>
+      <div class="lim" style="margin-top:6px"><i></i></div>
+      <span class="btnN" style="margin-top:10px">Ask Claude instead</span>
+    </div>
+    <div class="foot" style="justify-content:center"><span>Switching providers keeps this conversation</span></div>
+  </div>
+</div></div>
+
+<script>
+const P = {
+  x:'<path d="M6 6l12 12M18 6L6 18"/>',
+  dots:'<circle cx="6" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18" cy="12" r="1.2"/>',
+  copy:'<rect x="8" y="8" width="11" height="12" rx="2.5"/><path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15"/>',
+  save:'<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M5 16v2.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V16"/>',
+  pin:'<path d="M9 4h6l-1 5 3 3H7l3-3z"/><path d="M12 12v8"/>',
+  trash:'<path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13"/>',
+  bubble:'<path d="M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4 3.5V16h0.5A2.5 2.5 0 0 1 5 13.5z"/><path d="M12 7.6l.8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8z" fill="currentColor" stroke="none"/>',
+  up:'<path d="M12 19V6M6.5 11.5L12 6l5.5 5.5"/>',
+  region:'<path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><path d="M12 9v6M9 12h6"/>',
+  text:'<path d="M5 18l4.5-12h1L15 18M6.8 14h6.4"/><path d="M16.5 11.5c.6-.7 1.4-1 2.2-1 1.3 0 2.3.8 2.3 2.2V18M21 15h-2.4c-1.4 0-2.3.6-2.3 1.6 0 .9.7 1.5 1.8 1.5 1.5 0 2.9-1 2.9-2.6"/>',
+  textlayer:'<path d="M5 6h14M12 6v13"/>',
+  target:'<rect x="4" y="4" width="16" height="16" rx="3" stroke-dasharray="3 2.4"/><path d="M12 9v6M9 12h6"/>',
+  openai:'<circle cx="12" cy="12" r="7.5"/><path d="M12 4.5v15M5.5 8.2l13 7.6M5.5 15.8l13-7.6" opacity=".55"/>',
+  claude:'<path d="M12 3.5v17M3.5 12h17M6 6l12 12M18 6L6 18"/>',
+  off:'<circle cx="12" cy="12" r="7.5"/><path d="M7 17L17 7"/>',
+  pointer:'<path d="M6 4l12 7-5.2 1.3L10 18z" fill="currentColor"/>',
+  crop:'<path d="M7 3v14h14M3 7h14v14"/>',
+  arrow:'<path d="M6 18L18 6M10 6h8v8"/>',
+  rect:'<rect x="4.5" y="6" width="15" height="12" rx="2"/>',
+  oval:'<circle cx="12" cy="12" r="7.5"/>',
+  line:'<path d="M5 19L19 5"/>',
+  counter:'<circle cx="12" cy="12" r="7.5"/><path d="M11 9.5l1.5-1V16"/>',
+  pen:'<path d="M5 19c3-1 4-4 6-8s4-6 6-6c1 0 2 1 1 3-1.5 3-6 5-9 8"/>',
+  drop:'<path d="M12 4c3 4 5.5 6.8 5.5 9.8a5.5 5.5 0 0 1-11 0C6.5 10.8 9 8 12 4z"/>',
+  grid:'<path d="M5 5h3v3H5zM10.5 5h3v3h-3zM16 5h3v3h-3zM5 10.5h3v3H5zM10.5 10.5h3v3h-3zM16 10.5h3v3h-3zM5 16h3v3H5zM10.5 16h3v3h-3zM16 16h3v3h-3z"/>',
+  eraser:'<path d="M14 5l5 5-8 8H7l-3-3z"/><path d="M9.5 9.5l5 5"/>',
+  zoom:'<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5M11 8.5v5M8.5 11h5"/>',
+  ruler:'<rect x="3" y="8.5" width="18" height="7" rx="1.5"/><path d="M7 8.5v3M11 8.5v3M15 8.5v3M19 8.5v2"/>',
+  textscan:'<path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><path d="M8 10h8M8 14h5"/>',
+  sparkle:'<path d="M12 4l1.7 4.6L18 10.3l-4.3 1.7L12 16.6 10.3 12 6 10.3l4.3-1.7z"/><path d="M18 15l.7 1.8 1.8.7-1.8.7L18 20l-.7-1.8-1.8-.7 1.8-.7z"/>',
+  layers:'<path d="M12 4l8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4M4 16l8 4 8-4"/>',
+  info:'<circle cx="12" cy="12" r="8"/><path d="M12 11v5M12 8v.2"/>',
+  doc:'<rect x="4" y="5" width="16" height="14" rx="2.5"/><rect x="7" y="8" width="10" height="8" rx="1" fill="currentColor" stroke="none" opacity=".5"/>',
+  undo:'<path d="M9 7L5 11l4 4"/><path d="M5 11h9a5 5 0 0 1 0 10h-2"/>',
+  redo:'<path d="M15 7l4 4-4 4"/><path d="M19 11h-9a5 5 0 0 0 0 10h2"/>',
+  minus:'<path d="M6 12h12"/>', plus:'<path d="M6 12h12M12 6v12"/>',
+  share:'<path d="M12 4v11M8 8l4-4 4 4"/><path d="M7 11H6v9h12v-9h-1"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.5M12 18v2.5M3.5 12H6M18 12h2.5M6 6l1.8 1.8M16.2 16.2L18 18M6 18l1.8-1.8M16.2 7.8L18 6"/>',
+  keyboard:'<rect x="3" y="6.5" width="18" height="11" rx="2"/><path d="M7 10h.01M10 10h.01M13 10h.01M16 10h.01M8 14h8"/>',
+  library:'<rect x="4" y="5" width="7" height="6" rx="1.5"/><rect x="13" y="5" width="7" height="6" rx="1.5"/><rect x="4" y="13" width="7" height="6" rx="1.5"/><rect x="13" y="13" width="7" height="6" rx="1.5"/>',
+  hand:'<path d="M12 4l7 3v5c0 4-3 7-7 8-4-1-7-4-7-8V7z"/>',
+  chev:'<path d="M8 10l4 4 4-4"/>',
+  clock:'<circle cx="12" cy="12" r="8"/><path d="M12 8v4.5l3 2"/>'
+};
+const svg = (n, s=16) => `<svg class="i" viewBox="0 0 24 24" style="width:${s}px;height:${s}px">${P[n]||''}</svg>`;
+document.querySelectorAll('[data-i]').forEach(el => { el.innerHTML = svg(el.dataset.i, +(el.dataset.s||16)); });
+document.querySelectorAll('svg[data-p]').forEach(el => { el.setAttribute('viewBox','0 0 24 24'); el.innerHTML = P[el.dataset.p]||''; });
+
+const wraps = [...document.querySelectorAll('.wrap')];
+function fit() { wraps.forEach(w => { const s = w.clientWidth / 1280; const f = w.firstElementChild; f.style.transform = `scale(${s})`; w.style.height = (+w.dataset.h * s) + 'px'; }); }
+new ResizeObserver(fit).observe(document.body); fit();
+
+document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.seg button').forEach(x => x.setAttribute('aria-pressed', x === b));
+  document.querySelectorAll('.frame').forEach(f => f.dataset.theme = b.dataset.set);
+}));
+</script>
+</body>
+</html>
