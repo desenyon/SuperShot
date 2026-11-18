@@ -47,3 +47,23 @@ public enum ToolRegistry {
     public static let tools: [any Tool] = [ArrowTool(), RectangleTool(), OvalTool(), LineTool(), TextTool(), DrawingTool(), HighlighterTool(), CounterTool(), BlurTool(), PixelateTool(), SpotlightTool(), MagnifierTool(), EraseTool(), RulerTool()]
     public static func tool(_ id: String) -> (any Tool)? { tools.first { $0.kind.rawValue == id } }
 }
+
+/// The visible tool palette. Shortcut resolution stays in the canvas and uses the full registry.
+public struct EditorChrome: Equatable, Sendable {
+    private static let groups = [
+        ["select", "crop"], ["arrow", "rectangle", "oval", "line"],
+        ["text", "counter", "drawing", "highlighter"], ["blur", "pixelate", "erase", "spotlight", "magnifier"],
+        ["ruler", "picker"], ["image"]
+    ]
+    public static let defaultTools = groups.flatMap { $0 }
+    public let tools: [String]
+
+    public init(tools: [String] = Self.defaultTools) {
+        var seen = Set<String>()
+        self.tools = tools.filter { Self.defaultTools.contains($0) && seen.insert($0).inserted }
+    }
+
+    func beginsGroup(at index: Int) -> Bool {
+        index > 0 && !Self.groups.contains { $0.contains(tools[index - 1]) && $0.contains(tools[index]) }
+    }
+}

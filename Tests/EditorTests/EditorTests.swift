@@ -1,4 +1,5 @@
 import Testing
+import AppKit
 import Foundation
 import Document
 import Recognition
@@ -137,5 +138,65 @@ extension EditorTests {
         model.duplicateSelection()
         #expect(model.document.layers.count == 2 && model.document.layers[1].rect.minX == 44)
         #expect(model.selected == [model.document.layers[1].id])
+    }
+}
+
+extension EditorTests {
+    @Test func customPalettePreservesOrderAndGroupBoundaries() {
+        let palette = EditorChrome(tools: ["image", "arrow", "unknown", "oval", "select", "arrow", "blur", "crop"])
+        #expect(palette.tools == ["image", "arrow", "oval", "select", "blur", "crop"])
+        #expect(palette.tools.indices.filter { palette.beginsGroup(at: $0) } == [1, 3, 4, 5])
+        #expect(EditorChrome(tools: []).tools.isEmpty)
+        #expect(Set(EditorChrome().tools) == Set(ToolRegistry.tools.map { $0.kind.rawValue } + ["select", "crop", "picker", "image"]))
+    }
+
+    @Test @MainActor func hiddenToolsStillRespondToCustomShortcuts() throws {
+        let model = EditorModel(document: CaptureDocument(original: try Self.solid(32, 32), width: 32, height: 32))
+        let chrome = EditorChrome(tools: ["select"])
+        #expect(!chrome.tools.contains("rectangle"))
+        model.toolShortcuts = ["rectangle": "j"]
+        let canvas = CanvasView(model: model)
+        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "j", charactersIgnoringModifiers: "j", isARepeat: false, keyCode: 38))
+        canvas.keyDown(with: event)
+        #expect(model.tool == "rectangle")
+    }
+
+    @Test @MainActor func writeFeedbackWaitsForCompletionAndDistinguishesCancellation() async throws {
+        let model = EditorModel(document: CaptureDocument(original: try Self.solid(32, 32), width: 32, height: 32))
+        var finish: CheckedContinuation<EditorWriteResult, Never>?
+        model.copyAction = { _ in await withCheckedContinuation { finish = $0 } }
+        model.export(copy: true)
+        try await settle { finish != nil }
+        #expect(model.busy && model.exportFeedback == nil)
+        try #require(finish).resume(returning: .written)
+        try await settle { !model.busy }
+        #expect(model.exportFeedback == EditorExportFeedback(copy: true, succeeded: true))
+        model.saveAction = { _, _, _ in .failed("Disk full") }
+        model.export()
+        try await settle { !model.busy }
+        #expect(model.exportFeedback == EditorExportFeedback(copy: false, succeeded: false))
+        #expect(model.status == "Disk full")
+        model.saveAction = { _, _, _ in .cancelled }
+        model.export()
+        try await settle { !model.busy }
+        #expect(model.exportFeedback == nil)
+    }
+
+    @Test @MainActor func backdropCrossfadesOnlyForDiscreteChanges() async throws {
+        let model = EditorModel(document: CaptureDocument(original: try Self.solid(48, 48), width: 48, height: 48))
+        model.commit { $0.backdrop.fill = .solid }
+        try await settle { model.renderedBackdropRevision == 1 }
+        model.previewChange { $0.backdrop.padding = 20 }
+        model.commitDraft()
+        try await settle { model.image?.width == 88 }
+        #expect(model.renderedBackdropRevision == 1 && model.image?.width == 88)
+        model.commit { $0.backdrop.ratio = 2 }
+        try await settle { model.renderedBackdropRevision == 2 }
+        #expect(model.renderedBackdropRevision == 2)
+        model.zoom = 1.5
+        #expect(model.zoomCommand == 0)
+        model.zoomToFit()
+        #expect(model.zoomCommand == 1)
     }
 }

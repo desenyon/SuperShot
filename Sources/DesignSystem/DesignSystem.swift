@@ -216,11 +216,11 @@ public struct GlassSurface: ViewModifier {
     public init(radius: CGFloat = DS.radius) { self.radius = radius }
     public func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        if DS.rendersOffscreen || reduceTransparency {
+        if ThemeState.shared.chrome == .solid || DS.rendersOffscreen || reduceTransparency {
             content
                 .background(DS.panel(scheme), in: shape)
                 .overlay(shape.strokeBorder(DS.hairline(scheme), lineWidth: DS.stroke))
-                .shadow(color: .black.opacity(scheme == .dark ? 0.45 : 0.14), radius: 18, y: 8)
+                .shadow(color: .black.opacity(scheme == .dark ? 0.45 : 0.14), radius: DS.md, y: DS.xs)
         } else {
             content.glassEffect(.regular, in: shape)
         }
@@ -273,13 +273,16 @@ public struct PrimaryButtonStyle: ButtonStyle {
 }
 
 public struct QuietButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var scheme
     @Environment(\.isEnabled) private var enabled
     public init() {}
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(DS.body.weight(.medium))
-            .padding(.horizontal, DS.md).frame(height: DS.toolButton)
-            .background(configuration.isPressed ? DS.hover(scheme).opacity(1.6) : DS.hover(scheme), in: RoundedRectangle(cornerRadius: DS.controlRadius, style: .continuous))
+            .padding(.horizontal, DS.md).frame(height: DS.toolButtonSize)
+            .background(configuration.isPressed ? DS.hover(scheme) : DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.controlRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DS.controlRadius).strokeBorder(DS.hairline(scheme)))
+            .animation(DS.Motion.hover(reduceMotion), value: configuration.isPressed)
             .opacity(enabled ? 1 : 0.45)
             .contentShape(RoundedRectangle(cornerRadius: DS.controlRadius))
     }
@@ -293,21 +296,35 @@ public struct IconButton: View {
     private let symbol: String
     private let label: String
     private let selected: Bool
-    private let size: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let selectionSpace: Namespace.ID?
+    @FocusState private var focused: Bool
+    private let size: CGFloat?
     private let action: () -> Void
-    public init(_ symbol: String, label: String, selected: Bool = false, size: CGFloat = DS.toolButton, action: @escaping () -> Void) {
-        self.symbol = symbol; self.label = label; self.selected = selected; self.size = size; self.action = action
+    public init(_ symbol: String, label: String, selected: Bool = false, size: CGFloat? = nil, selectionSpace: Namespace.ID? = nil, action: @escaping () -> Void) {
+        self.symbol = symbol; self.label = label; self.selected = selected; self.size = size; self.action = action; self.selectionSpace = selectionSpace
     }
     public var body: some View {
         Button(action: action) {
             Icon(symbol, weight: selected ? .fill : .regular, size: DS.iconSize)
                 .foregroundStyle(selected ? DS.onAccent : Color.primary.opacity(enabled ? (hovering ? 1 : 0.8) : 0.3))
-                .frame(width: size, height: size)
-                .background(selected ? DS.accent : (hovering && enabled ? DS.hover(scheme) : .clear),
-                            in: RoundedRectangle(cornerRadius: DS.controlRadius, style: .continuous))
+                .phaseAnimator([1.0, 1.09, 1.0], trigger: selected) { icon, scale in
+                    icon.scaleEffect(selected && !reduceMotion ? scale : 1)
+                } animation: { _ in DS.Motion.snappy(reduceMotion) }
+                .frame(width: size ?? DS.toolButtonSize, height: size ?? DS.toolButtonSize)
+                .background {
+                    let tile = RoundedRectangle(cornerRadius: DS.buttonRadius, style: .continuous)
+                    if selected {
+                        tile.fill(DS.accent).slidingSelection("tool", in: selectionSpace, reduceMotion: reduceMotion)
+                    } else if hovering && enabled { tile.fill(DS.hover(scheme)) }
+                }
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
+        .animation(DS.Motion.hover(reduceMotion), value: hovering)
+        .focused($focused)
+        .focusEffectDisabled()
+        .overlay(RoundedRectangle(cornerRadius: DS.buttonRadius).strokeBorder(focused ? DS.accent : .clear, lineWidth: DS.insetStroke).allowsHitTesting(false))
         .onHover { hovering = $0 }
         .help(label).accessibilityLabel(label)
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -328,19 +345,19 @@ public struct SegmentedChoice<Value: Hashable>: View {
     public var body: some View {
         HStack(spacing: 2) {
             ForEach(options, id: \.value) { option in
-                Button { withAnimation(DS.spring(reduceMotion: reduceMotion)) { select(option.value) } } label: {
+                Button { withAnimation(DS.Motion.snappy(reduceMotion)) { select(option.value) } } label: {
                     HStack(spacing: DS.xs) {
-                        if let symbol = option.symbol { Icon(symbol, weight: .bold, size: 12) }
+                        if let symbol = option.symbol { Icon(symbol, weight: selection == option.value ? .fill : .regular, size: DS.md) }
                         Text(option.title).font(DS.caption)
                     }
                     .foregroundStyle(selection == option.value ? Color.primary : Color.secondary)
-                    .frame(maxWidth: .infinity).frame(height: 26)
+                    .frame(maxWidth: .infinity).frame(height: DS.toolButtonSize - DS.xs)
                     .background {
                         if selection == option.value {
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            RoundedRectangle(cornerRadius: DS.controlRadius, style: .continuous)
                                 .fill(scheme == .dark ? Color.white.opacity(0.16) : Color.white)
                                 .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
-                                .matchedGeometryEffect(id: "selection", in: space)
+                                .slidingSelection("selection", in: space, reduceMotion: reduceMotion)
                         }
                     }
                     .contentShape(Rectangle())
@@ -349,7 +366,7 @@ public struct SegmentedChoice<Value: Hashable>: View {
                 .accessibilityAddTraits(selection == option.value ? .isSelected : [])
             }
         }
-        .padding(2)
+        .padding(DS.insetStroke)
         .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
     }
 }
@@ -360,29 +377,49 @@ public struct SegmentedChoice<Value: Hashable>: View {
 /// so callers can preview while dragging and commit once.
 public struct ValueSlider: View {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @LocalState private var dragging = false
+    @FocusState private var focused: Bool
     private let title: String
     private let value: Double
     private let range: ClosedRange<Double>
     private let format: (Double) -> String
-    private let compact: Bool
+    public enum Layout { case standard, toolbar, row }
+    private let layout: Layout
     private let onChange: (Double) -> Void
     private let onEditingChanged: (Bool) -> Void
     public init(_ title: String, value: Double, in range: ClosedRange<Double>, compact: Bool = false,
                 format: @escaping (Double) -> String = { String(format: "%.0f", $0) },
                 onChange: @escaping (Double) -> Void, onEditingChanged: @escaping (Bool) -> Void = { _ in }) {
-        self.title = title; self.value = value; self.range = range; self.compact = compact
+        self.init(title, value: value, in: range, layout: compact ? .toolbar : .standard, format: format, onChange: onChange, onEditingChanged: onEditingChanged)
+    }
+    public init(_ title: String, value: Double, in range: ClosedRange<Double>, layout: Layout,
+                format: @escaping (Double) -> String = { String(format: "%.0f", $0) },
+                onChange: @escaping (Double) -> Void, onEditingChanged: @escaping (Bool) -> Void = { _ in }) {
+        self.title = title; self.value = value; self.range = range; self.layout = layout
         self.format = format; self.onChange = onChange; self.onEditingChanged = onEditingChanged
     }
     private var fraction: Double { max(0, min(1, (value - range.lowerBound) / (range.upperBound - range.lowerBound))) }
     public var body: some View {
         Group {
-            if compact {
+            if layout == .row {
                 HStack(spacing: DS.sm) {
-                    Text(title).font(DS.caption).foregroundStyle(.secondary).fixedSize()
-                    track.frame(width: 76)
-                    Text(format(value)).font(DS.mono).foregroundStyle(.secondary).frame(width: 30, alignment: .trailing)
+                    Text(title).font(DS.body).frame(width: DS.sliderLabelWidth, alignment: .leading)
+                    track
+                    Text(format(value)).font(DS.mono).foregroundStyle(.secondary)
+                        .frame(width: DS.sliderReadoutWidth, alignment: .trailing)
+                }.frame(height: DS.swatchTileHeight)
+            } else if layout == .toolbar {
+                VStack(spacing: 0) {
+                    HStack(spacing: DS.xs) {
+                        Text(title).font(DS.caption).fixedSize()
+                        Spacer(minLength: DS.xs)
+                        Text(format(value)).font(DS.mono).fixedSize()
+                    }
+                    .foregroundStyle(.secondary)
+                    track
                 }
+                .frame(width: DS.optionTrackWidth)
             } else {
                 VStack(spacing: 6) {
                     HStack {
@@ -394,24 +431,43 @@ public struct ValueSlider: View {
                 }
             }
         }
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
+        .overlay(RoundedRectangle(cornerRadius: DS.controlRadius)
+            .strokeBorder(focused ? DS.accent : .clear).padding(-DS.xs).allowsHitTesting(false))
+        .onKeyPress(.leftArrow) { adjust(increasing: false); return .handled }
+        .onKeyPress(.rightArrow) { adjust(increasing: true); return .handled }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title).accessibilityValue(format(value))
-        .accessibilityAdjustableAction { direction in
-            let step = (range.upperBound - range.lowerBound) / 20
-            onChange(max(range.lowerBound, min(range.upperBound, value + (direction == .increment ? step : -step))))
-            onEditingChanged(false)
-        }
+        .accessibilityAdjustableAction { direction in adjust(increasing: direction == .increment) }
+    }
+    private func adjust(increasing: Bool) {
+        let step = (range.upperBound - range.lowerBound) / 20
+        onEditingChanged(true)
+        onChange(max(range.lowerBound, min(range.upperBound, value + (increasing ? step : -step))))
+        onEditingChanged(false)
     }
     private var track: some View {
         GeometryReader { proxy in
-            let knob: CGFloat = 14, width = max(1, proxy.size.width - knob)
+            let knob: CGFloat = 12, width = max(1, proxy.size.width - knob)
             ZStack(alignment: .leading) {
                 Capsule().fill(DS.hover(scheme)).frame(height: 4)
                 Capsule().fill(DS.accent).frame(width: knob / 2 + width * fraction, height: 4)
                 Circle().fill(.white)
                     .shadow(color: .black.opacity(0.3), radius: dragging ? 4 : 2, y: 1)
                     .frame(width: knob, height: knob)
-                    .scaleEffect(dragging ? 1.12 : 1)
+                    .scaleEffect(dragging && !reduceMotion ? 1.15 : 1)
+                    .overlay {
+                        if dragging {
+                            Text(format(value)).font(DS.mono).fixedSize()
+                                .padding(.horizontal, DS.sm).padding(.vertical, DS.xs)
+                                .foregroundStyle(DS.onAccent).background(DS.accent, in: Capsule())
+                                .offset(y: -DS.xl).allowsHitTesting(false)
+                                .transition(DS.Motion.pop(reduceMotion: reduceMotion))
+                        }
+                    }
+                    .animation(DS.Motion.snappy(reduceMotion), value: dragging)
                     .offset(x: width * fraction)
             }
             .frame(height: proxy.size.height)
@@ -422,7 +478,7 @@ public struct ValueSlider: View {
                 onChange(range.lowerBound + next * (range.upperBound - range.lowerBound))
             }.onEnded { _ in dragging = false; onEditingChanged(false) })
         }
-        .frame(height: 18)
+        .frame(height: layout == .toolbar ? 12 : 16)
     }
 }
 
@@ -434,12 +490,12 @@ public struct Keycaps: View {
     private let keys: [String]
     public init(_ shortcut: String) { keys = shortcut.map { String($0) } }
     public var body: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: DS.xs) {
             ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
-                Text(key).font(.system(size: 11, weight: .medium, design: .rounded))
+                Text(key).font(DS.mono)
                     .frame(minWidth: 20, minHeight: 20)
-                    .background(DS.hover(scheme), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(DS.hairline(scheme)))
+                    .background(DS.hover(scheme), in: RoundedRectangle(cornerRadius: DS.xs, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: DS.xs, style: .continuous).strokeBorder(DS.hairline(scheme)))
             }
         }
         .accessibilityElement(children: .ignore).accessibilityLabel(keys.joined())
@@ -468,8 +524,8 @@ public struct Tag: View {
     public init(_ text: String) { self.text = text }
     public var body: some View {
         Text(text).font(DS.mono).foregroundStyle(.secondary)
-            .padding(.horizontal, 7).frame(height: 20)
-            .background(DS.hover(scheme), in: Capsule())
+            .padding(.horizontal, DS.sm).frame(height: DS.metadataIconSize)
+            .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.controlRadius))
     }
 }
 
@@ -481,13 +537,14 @@ public struct SwitchStyle: ToggleStyle {
     private let showsLabel: Bool
     public init(showsLabel: Bool = false) { self.showsLabel = showsLabel }
     public func makeBody(configuration: Configuration) -> some View {
-        Button { withAnimation(DS.quick(reduceMotion: reduceMotion)) { configuration.isOn.toggle() } } label: {
+        Button { withAnimation(DS.Motion.snappy(reduceMotion)) { configuration.isOn.toggle() } } label: {
             HStack(spacing: DS.sm) {
                 if showsLabel { configuration.label.font(DS.caption).fixedSize() }
-                Capsule().fill(configuration.isOn ? DS.accent : (scheme == .dark ? Color.white.opacity(0.18) : Color.black.opacity(0.16)))
+                Capsule().fill(configuration.isOn ? DS.accent : DS.hover(scheme))
+                    .overlay(Capsule().strokeBorder(DS.hairline(scheme)))
                     .frame(width: 34, height: 20)
                     .overlay(alignment: configuration.isOn ? .trailing : .leading) {
-                        Circle().fill(.white).shadow(color: .black.opacity(0.25), radius: 1.5, y: 1).frame(width: 16, height: 16).padding(2)
+                        Circle().fill(configuration.isOn ? DS.onAccent : DS.white).shadow(color: .black.opacity(0.25), radius: 1.5, y: 1).frame(width: 16, height: 16).padding(2)
                     }
             }
             .contentShape(Rectangle())

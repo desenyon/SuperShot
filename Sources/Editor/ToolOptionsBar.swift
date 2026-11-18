@@ -8,6 +8,8 @@ struct ToolOptionsBar: View {
     @Bindable var model: EditorModel
     @Environment(\.colorScheme) private var scheme
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     /// The kind being styled: the selected layer wins over the active tool.
     private var kind: LayerKind? { model.selectedLayer?.kind ?? ToolRegistry.tool(model.tool)?.kind }
 
@@ -17,16 +19,16 @@ struct ToolOptionsBar: View {
             else if model.tool == "picker" { bar { pickerOptions } }
             else if model.tool == "liveText" { bar { liveTextOptions } }
             else if let kind { bar { styleOptions(kind) } }
-            else { Color.clear }
         }
-        .frame(height: 38)
+        .animation(DS.Motion.panel(reduceMotion), value: model.tool)
+        .animation(DS.Motion.panel(reduceMotion), value: kind)
     }
 
     private func bar<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        HStack(spacing: DS.md) { content() }
-            .padding(.horizontal, DS.md).frame(height: 38)
+        HStack(spacing: DS.sm) { content() }.id(kind?.rawValue ?? model.tool).transition(.opacity)
+            .padding(.horizontal, DS.md).frame(height: DS.capsuleHeight)
             .modifier(GlassSurface(radius: DS.pill))
-            .transition(.opacity.combined(with: .offset(y: -6)))
+            .transition(DS.Motion.reveal(from: .top, reduceMotion: reduceMotion))
     }
 
     // MARK: Per-mode content
@@ -106,14 +108,14 @@ struct ToolOptionsBar: View {
 
     private var colors: some View {
         let current = model.selectedLayer?.color ?? model.style.color
-        return HStack(spacing: 6) {
+        return HStack(spacing: DS.insetStroke) {
             ForEach(0..<DS.annotationColors.count, id: \.self) { index in
                 let color = RGBA(DS.annotationColors[index])
                 Button { model.restyle({ $0.color = color }, layers: { $0.color = color }) } label: {
-                    Circle().fill(Color(DS.annotationColors[index])).frame(width: 16, height: 16)
+                    Circle().fill(Color(DS.annotationColors[index])).frame(width: DS.swatchDiameter, height: DS.swatchDiameter)
                         .overlay(Circle().strokeBorder(DS.hairline(scheme)))
-                        .padding(3)
-                        .overlay(Circle().strokeBorder(current == color ? DS.actionInk(scheme) : .clear, lineWidth: 2))
+                        .padding(DS.xs)
+                        .overlay(Circle().strokeBorder(current == color ? DS.actionInk(scheme) : .clear, lineWidth: DS.insetStroke))
                 }
                 .buttonStyle(.plain).accessibilityLabel("Color \(color.hex)")
                 .accessibilityAddTraits(current == color ? .isSelected : [])
@@ -121,7 +123,10 @@ struct ToolOptionsBar: View {
             ColorPicker("Custom color", selection: Binding(get: { Color(current.nsColor) }, set: { value in
                 let color = RGBA(NSColor(value))
                 model.restyle({ $0.color = color }, layers: { $0.color = color })
-            })).labelsHidden().frame(width: 28).help("Custom color")
+            })).labelsHidden().fixedSize()
+                .frame(width: DS.swatchDiameter, height: DS.swatchDiameter).clipShape(Circle())
+                .overlay(Icon("plus", weight: .bold, size: DS.md).foregroundStyle(DS.white).shadow(radius: DS.insetStroke).allowsHitTesting(false))
+                .padding(DS.xs).help("Custom color").accessibilityLabel("Custom color")
         }
     }
 
@@ -134,7 +139,7 @@ struct ToolOptionsBar: View {
                         if head == value { Label(title, systemImage: "checkmark") } else { Text(title) }
                     }
                 }
-            } label: { Icon("arrow.up.right", size: 16).frame(width: 26, height: 26) }
+            } label: { Icon("arrow.up.right", size: DS.iconSize).frame(width: DS.toolButtonSize, height: DS.toolButtonSize) }
                 .menuStyle(.borderlessButton).fixedSize().help("Arrowhead style")
             slider("Curve", model.selectedLayer?.arrowBend ?? model.style.arrowBend, -0.6...0.6, decimals: true) { value, live in
                 model.restyle(live: live, { $0.arrowBend = value }, layers: { $0.arrowBend = value })
@@ -161,18 +166,18 @@ struct ToolOptionsBar: View {
     }
 
     private var arrangement: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: DS.insetStroke) {
             Menu {
                 Button("Rotate 15° left") { model.modifySelected { $0.rotation -= 15 } }
                 Button("Rotate 15° right") { model.modifySelected { $0.rotation += 15 } }
                 Button("Rotate 90°") { model.modifySelected { $0.rotation += 90 } }
                 Divider()
                 Button("Reset rotation") { model.modifySelected { $0.rotation = 0 } }
-            } label: { Icon("rotate.right", size: 16).frame(width: 26, height: 26) }
+            } label: { Icon("rotate.right", size: DS.iconSize).frame(width: DS.toolButtonSize, height: DS.toolButtonSize) }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Rotate")
-            IconButton("square.3.layers.3d.top.filled", label: "Bring to front", size: 28) { model.reorderSelected(front: true) }
-            IconButton("square.3.layers.3d.bottom.filled", label: "Send to back", size: 28) { model.reorderSelected(front: false) }
-            IconButton("trash", label: "Delete · ⌫", size: 28) { model.deleteSelection() }
+            IconButton("square.3.layers.3d.top.filled", label: "Bring to front", size: DS.toolButtonSize) { model.reorderSelected(front: true) }
+            IconButton("square.3.layers.3d.bottom.filled", label: "Send to back", size: DS.toolButtonSize) { model.reorderSelected(front: false) }
+            IconButton("trash", label: "Delete · ⌫", size: DS.toolButtonSize) { model.deleteSelection() }
         }
     }
 
@@ -191,5 +196,5 @@ struct ToolOptionsBar: View {
             Text(text).font(DS.caption)
         }.foregroundStyle(.secondary)
     }
-    private var divider: some View { Rectangle().fill(DS.hairline(scheme)).frame(width: 1, height: 18) }
+    private var divider: some View { Rectangle().fill(DS.hairline(scheme)).frame(width: DS.stroke, height: DS.iconSize) }
 }

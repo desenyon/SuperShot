@@ -60,15 +60,20 @@ import ApplicationServices
 struct ScrollPanel: View {
     @Bindable var model: ScrollModel
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(alignment: .leading, spacing: DS.md) {
             HStack(spacing: DS.sm) {
-                Circle().fill(DS.danger).frame(width: 8, height: 8)
+                Icon("scroll", size: DS.iconSize).foregroundStyle(.secondary)
                 Text("Scrolling capture").font(DS.emphasis)
                 Spacer()
-                Tag("\(model.preview.height) px")
+                Text("\(model.preview.height) px").font(DS.mono).foregroundStyle(.secondary)
+                    .contentTransition(reduceMotion ? .opacity : .numericText())
             }
-            Image(decorative: model.preview, scale: 1).resizable().scaledToFit()
+            ZStack {
+                Image(decorative: model.preview, scale: 1).resizable().scaledToFit()
+                    .id(model.frames).transition(DS.Motion.reveal(from: .bottom, reduceMotion: reduceMotion))
+            }.animation(DS.Motion.gentle(reduceMotion), value: model.frames)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(DS.card(scheme))
                 .clipShape(RoundedRectangle(cornerRadius: DS.smallRadius, style: .continuous))
@@ -82,7 +87,11 @@ struct ScrollPanel: View {
                     } else { model.autoScroll = false }
                 })).toggleStyle(SwitchStyle(showsLabel: true)).disabled(model.stopped)
                 Spacer()
+            }
+            Hairline()
+            HStack {
                 Button("Cancel", action: model.cancel).buttonStyle(QuietButtonStyle())
+                Spacer()
                 Button("Done", action: model.finish).buttonStyle(PrimaryButtonStyle())
             }
         }

@@ -22,7 +22,41 @@ import Export
         let only = ProcessInfo.processInfo.environment["PREVIEW_ONLY"]
         for dark in [true, false] {
             let suffix = dark ? "dark" : "light"
-            for scene in scenes(data: data, image: image) where only == nil || scene.name.contains(only!) {
+            for scene in scenes(data: data, image: image) {
+                // MARK: Editor customization previews. Scope live theme settings to each synchronous snapshot.
+                if scene.name == "editor" {
+                    let theme = ThemeState.shared
+                    let density = theme.density, chrome = theme.chrome
+                    defer { theme.density = density; theme.chrome = chrome }
+                    let model = EditorModel(document: document(data, image))
+                    model.selected = [model.document.layers[1].id]
+                    let compactPalette = EditorChrome(tools: ["select", "text", "arrow", "rectangle", "crop", "image"])
+                    var paper = model.document.backdrop
+                    paper.fill = .solid; paper.color = .white
+                    model.savedPresets = [BackdropPreset(name: "Lagoon", backdrop: model.document.backdrop),
+                                          BackdropPreset(name: "Paper", backdrop: paper)]
+                    let locked = PinState(image: image)
+                    locked.locked = true
+                    let customScenes = [
+                        Scene(name: "editor-compact", size: scene.size, view: AnyView(EditorView(model: model, chrome: compactPalette))),
+                        Scene(name: "editor-solid", size: scene.size, view: AnyView(EditorView(model: model))),
+                        Scene(name: "editor-backdrop-presets", size: CGSize(width: 288, height: 200),
+                              view: AnyView(BackdropPresets(model: model).fixedSize().modifier(GlassSurface()).padding(DS.sm))),
+                        Scene(name: "editor-export-options", size: CGSize(width: 200, height: 380),
+                              view: AnyView(ExportOptions(model: model, dismiss: {}).modifier(GlassSurface()).padding(DS.sm))),
+                        Scene(name: "pin-opacity", size: CGSize(width: 200, height: 96),
+                              view: AnyView(PinOpacityControl(state: PinState(image: image, opacity: 0.75)).modifier(GlassSurface()).padding(DS.sm))),
+                        Scene(name: "pin-locked", size: CGSize(width: 420, height: 270), view: AnyView(PinView(state: locked)))
+                    ]
+                    for variant in customScenes where only.map({ variant.name.contains($0) }) ?? true {
+                        theme.density = variant.name == "editor-compact" ? .compact : density
+                        theme.chrome = variant.name == "editor-solid" ? .solid : chrome
+                        snapshot(variant.view, size: variant.size, dark: dark,
+                                 to: output.appendingPathComponent("\(variant.name)-\(suffix).png"))
+                    }
+                }
+                // End editor customization previews.
+                guard only.map({ scene.name.contains($0) }) ?? true else { continue }
                 snapshot(scene.view, size: scene.size, dark: dark, to: output.appendingPathComponent("\(scene.name)-\(suffix).png"))
             }
         }

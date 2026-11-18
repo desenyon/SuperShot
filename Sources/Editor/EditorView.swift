@@ -11,8 +11,13 @@ public struct EditorView: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var textFocused: Bool
+    @LocalState private var choosingFormat = false
 
-    public init(model: EditorModel) { self.model = model }
+    private let configuration: EditorChrome
+    public init(model: EditorModel, chrome: EditorChrome = EditorChrome()) {
+        self.model = model
+        self.configuration = chrome
+    }
 
     public var body: some View {
         ZStack {
@@ -22,15 +27,20 @@ public struct EditorView: View {
             // One container lets the system sample the canvas once for all floating surfaces.
             GlassEffectContainer(spacing: 0) { chrome }.ignoresSafeArea()
         }
-        .animation(DS.spring(reduceMotion: reduceMotion), value: model.inspector)
-        .animation(DS.spring(reduceMotion: reduceMotion), value: model.showBackdrop)
-        .animation(DS.quick(reduceMotion: reduceMotion), value: model.tool)
-        .animation(DS.quick(reduceMotion: reduceMotion), value: model.selected)
-        .animation(DS.quick(reduceMotion: reduceMotion), value: model.status)
+        .animation(DS.Motion.panel(reduceMotion), value: model.inspector)
+        .animation(DS.Motion.panel(reduceMotion), value: model.showBackdrop)
+        .animation(DS.Motion.snappy(reduceMotion), value: model.tool)
+        .animation(DS.Motion.snappy(reduceMotion), value: model.selected)
+        .animation(DS.Motion.arrive(reduceMotion), value: model.status)
         .alert("SuperShot", isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } })) {
             Button("OK") { model.message = nil }
         } message: { Text(model.message ?? "") }
-        .task(id: model.status) {
+        .task(id: model.exportFeedback) {
+            guard model.exportFeedback != nil else { return }
+            do { try await Task.sleep(for: .seconds(2.4)) } catch { return }
+            model.exportFeedback = nil
+        }
+        .task(id: model.busy ? nil : model.status) {
             // Status messages are transient confirmations.
             guard !model.status.isEmpty, !model.busy else { return }
             do { try await Task.sleep(for: .seconds(2.4)) } catch { return }
@@ -42,8 +52,8 @@ public struct EditorView: View {
         ZStack {
             scheme == .dark ? DS.midnight : DS.paper
             // A faint pool of light behind the image keeps the canvas from looking flat.
-            RadialGradient(colors: [scheme == .dark ? Color.white.opacity(0.055) : Color.white.opacity(0.9), .clear],
-                           center: .center, startRadius: 0, endRadius: 720)
+            RadialGradient(colors: [DS.canvasGlow(scheme), .clear],
+                           center: .center, startRadius: 0, endRadius: DS.canvasGlowRadius)
         }
     }
 
@@ -51,29 +61,26 @@ public struct EditorView: View {
 
     private var chrome: some View {
         VStack(spacing: DS.sm) {
-            HStack(spacing: DS.sm) {
-                // An invisible twin of the switcher keeps the palette centered without ever overlapping it.
-                panelSwitcher.hidden().accessibilityHidden(true)
-                Spacer(minLength: 0)
-                ToolPalette(model: model)
-                Spacer(minLength: 0)
+            EditorPaletteLayout(height: DS.capsuleHeight) {
+                if configuration.tools.isEmpty { Color.clear.frame(width: 0, height: 0) }
+                else { ToolPalette(model: model, configuration: configuration) }
                 panelSwitcher
             }
             ToolOptionsBar(model: model)
             HStack(alignment: .top, spacing: 0) {
                 if model.showBackdrop {
-                    BackdropPanel(model: model).transition(.move(edge: .leading).combined(with: .opacity))
+                    BackdropPanel(model: model).transition(DS.Motion.reveal(from: .leading, reduceMotion: reduceMotion))
                 }
                 Spacer(minLength: 0)
                 if !model.inspector.isEmpty {
-                    SidePanel(model: model).transition(.move(edge: .trailing).combined(with: .opacity))
+                    SidePanel(model: model).transition(DS.Motion.reveal(from: .trailing, reduceMotion: reduceMotion))
                 }
             }
             .frame(maxHeight: .infinity)
             ZStack(alignment: .bottom) {
                 HStack(alignment: .bottom) { documentBar; Spacer(); exportBar }
                 VStack(spacing: DS.sm) {
-                    if model.busy || !model.status.isEmpty { toast.transition(.opacity.combined(with: .scale(scale: 0.96))) }
+                    if model.busy || !model.status.isEmpty { toast.transition(DS.Motion.rise(reduceMotion: reduceMotion)) }
                     zoomBar
                 }
             }
@@ -88,7 +95,7 @@ public struct EditorView: View {
             panelButton("square.3.layers.3d", "Layers", "layers")
             panelButton("info.circle", "Details", "info")
         }
-        .padding(6).frame(height: DS.barHeight).modifier(GlassSurface(radius: DS.pill))
+        .padding(DS.capsulePadding).frame(height: DS.capsuleHeight).modifier(GlassSurface(radius: DS.pill))
     }
     private func panelButton(_ symbol: String, _ label: String, _ id: String, onOpen: @escaping () -> Void = {}) -> some View {
         IconButton(symbol, label: label, selected: model.inspector == id) {
@@ -106,7 +113,7 @@ public struct EditorView: View {
             Text(model.document.source).font(DS.caption).lineLimit(1).frame(maxWidth: 140, alignment: .leading).padding(.leading, DS.xs)
             DimensionTag(model: model).padding(.trailing, DS.xs)
         }
-        .padding(6).frame(height: DS.barHeight).modifier(GlassSurface(radius: DS.pill))
+        .padding(DS.capsulePadding).frame(height: DS.capsuleHeight).modifier(GlassSurface(radius: DS.pill))
     }
     private var zoomBar: some View {
         HStack(spacing: 2) {
@@ -114,67 +121,63 @@ public struct EditorView: View {
             Menu {
                 Button("Fit to window  ⌘0") { model.zoomToFit() }
                 Divider()
-                ForEach([0.5, 1, 2, 4, 8], id: \.self) { value in
-                    Button("\(Int(value * 100))%") { model.zoom = value; model.pan = .zero }
+                ForEach([0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32], id: \.self) { value in
+                    Button("\(Int(value * 100))%") { model.setZoom(value) }
                 }
             } label: {
-                Text(model.zoom == 0 ? "Fit" : "\(Int((model.zoom * 100).rounded()))%").font(DS.mono).frame(width: 44)
+                HStack(spacing: DS.xs) {
+                    Text("\(Int(((model.zoom == 0 ? model.displayScale : model.zoom) * 100).rounded()))%").font(DS.mono)
+                    Icon("caret-down", size: DS.sm)
+                }.frame(width: DS.zoomLabelWidth)
             }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Zoom")
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize().help("Zoom")
             IconButton("plus", label: "Zoom in · ⌘+") { model.zoom(by: 1.25) }
         }
-        .padding(6).frame(height: DS.barHeight).modifier(GlassSurface(radius: DS.pill))
+        .padding(DS.capsulePadding).frame(height: DS.capsuleHeight).modifier(GlassSurface(radius: DS.pill))
     }
 
     private var exportBar: some View {
         HStack(spacing: DS.xs) {
             HStack(spacing: DS.xs) {
-                Icon("hand.draw", size: 14)
+                Icon("dots-six-vertical", weight: .bold, size: DS.iconSize)
                 Text("Drag").font(DS.caption)
             }
-            .foregroundStyle(.secondary).padding(.horizontal, DS.sm).frame(height: DS.toolButton)
-            .overlay(Capsule().strokeBorder(DS.hairline(scheme), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+            .foregroundStyle(.primary).padding(.horizontal, DS.xs).frame(height: DS.toolButtonSize)
             .contentShape(Capsule())
             .onDrag { dragProvider() }
             .help("Drag the finished image into another app").accessibilityLabel("Drag image")
             IconButton("pin", label: "Pin to screen") { model.export(pin: true) }.disabled(model.pinAction == nil || model.busy)
-            ShareButton(model: model).frame(width: DS.toolButton, height: DS.toolButton)
+            ShareButton(model: model).frame(width: DS.toolButtonSize, height: DS.toolButtonSize)
             IconButton("square.and.arrow.down.on.square", label: "Save editable project · ⇧⌘S") { model.saveProject() }
             divider
-            Button { model.export(copy: true) } label: { Label { Text("Copy") } icon: { Icon("doc.on.doc", size: 16) } }
+            Button { model.export(copy: true) } label: { ExportLabel(copy: true, feedback: model.exportFeedback) }
                 .buttonStyle(QuietButtonStyle()).disabled(model.busy).help("Copy image · ⌘C")
             HStack(spacing: 0) {
-                Button { model.export() } label: { Text("Save").font(DS.emphasis).padding(.leading, DS.lg).padding(.trailing, DS.sm).frame(height: DS.toolButton) }
+                Button { model.export() } label: { ExportLabel(copy: false, feedback: model.exportFeedback).font(DS.emphasis).padding(.leading, DS.md).padding(.trailing, DS.sm).frame(height: DS.toolButtonSize) }
                     .buttonStyle(.plain).help("Save image · ⌘S")
-                Rectangle().fill(.white.opacity(0.25)).frame(width: 1, height: 14)
-                Menu {
-                    ForEach(ImageExport.formats) { format in
-                        Button { model.format = format.id } label: {
-                            if model.format == format.id { Label(format.name, systemImage: "checkmark") } else { Text(format.name) }
-                        }
-                    }
-                    Divider()
-                    Picker("Resolution", selection: $model.outputMultiplier) {
-                        Text("Original size").tag(1.0); Text("2× resample").tag(2.0); Text("4× resample").tag(4.0)
-                    }
-                } label: {
+                Rectangle().fill(DS.onAccent.opacity(0.4)).frame(width: DS.stroke, height: DS.lg)
+                Button { choosingFormat.toggle() } label: {
                     HStack(spacing: 3) {
                         Text(ImageExport.formats.first { $0.id == model.format }?.name ?? "PNG").font(DS.mono)
                         Icon("chevron.down", weight: .bold, size: 10)
-                    }.foregroundStyle(.white).padding(.leading, DS.sm).padding(.trailing, DS.md).frame(height: DS.toolButton).contentShape(Rectangle())
+                    }.foregroundStyle(DS.onAccent).padding(.leading, DS.sm).padding(.trailing, DS.md).frame(height: DS.toolButtonSize).contentShape(Rectangle())
                 }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Format and resolution")
+                .buttonStyle(PressableStyle()).help("Format and resolution").accessibilityLabel("Format and resolution")
+                .popover(isPresented: $choosingFormat, arrowEdge: .top) {
+                    ExportOptions(model: model, dismiss: { choosingFormat = false })
+                }
             }
-            .foregroundStyle(.white).background(DS.accent, in: Capsule())
+            .foregroundStyle(DS.onAccent).background(DS.accent, in: Capsule())
             .opacity(model.busy ? 0.5 : 1).disabled(model.busy)
         }
-        .padding(6).frame(height: DS.barHeight).modifier(GlassSurface(radius: DS.pill))
+        .padding(DS.capsulePadding).frame(height: DS.capsuleHeight).modifier(GlassSurface(radius: DS.pill))
     }
 
     private var toast: some View {
         HStack(spacing: DS.sm) {
             if model.busy { ProgressView().controlSize(.small) }
-            else { Icon("checkmark.circle.fill").foregroundStyle(DS.success) }
+            else if model.exportFeedback?.succeeded == false { Icon("warning").foregroundStyle(.primary) }
+            else { Icon("check-circle").foregroundStyle(.primary) }
             Text(model.status.isEmpty ? "Working…" : model.status).font(DS.caption).lineLimit(1)
         }
         .padding(.horizontal, DS.md).frame(height: 30).modifier(GlassSurface(radius: DS.pill))
@@ -210,6 +213,84 @@ public struct EditorView: View {
     }
 }
 
+private struct ExportLabel: View {
+    let copy: Bool
+    let feedback: EditorExportFeedback?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @LocalState private var failures = 0
+
+    var body: some View {
+        let result = feedback?.copy == copy ? feedback?.succeeded : nil
+        let symbol = result.map { $0 ? "check" : "warning" } ?? (copy ? "copy" : "download-simple")
+        HStack(spacing: DS.xs) {
+            Icon(symbol, weight: result == nil ? .regular : .bold, size: DS.icon)
+                .id(symbol).transition(DS.Motion.pop(reduceMotion: reduceMotion))
+            Text(copy ? "Copy" : "Save")
+        }
+        .accessibilityLabel(result.map { $0 ? (copy ? "Copied image" : "Saved image") : (copy ? "Copy failed" : "Save failed") } ?? (copy ? "Copy" : "Save"))
+        .animation(DS.Motion.snappy(reduceMotion), value: result)
+        .modifier(WriteFailureShake(progress: CGFloat(failures)))
+        .onChange(of: result) { _, new in
+            if new == false && !reduceMotion { withAnimation(DS.Motion.snappy(false)) { failures += 1 } }
+        }
+    }
+}
+
+private struct WriteFailureShake: GeometryEffect {
+    var progress: CGFloat
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        ProjectionTransform(CGAffineTransform(translationX: DS.xs * sin(progress * .pi * 4), y: 0))
+    }
+}
+
+package struct ExportOptions: View {
+    @Bindable private var model: EditorModel
+    private let dismiss: () -> Void
+
+    package init(model: EditorModel, dismiss: @escaping () -> Void) {
+        self.model = model
+        self.dismiss = dismiss
+    }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @LocalState private var shown = false
+
+    package var body: some View {
+        ZStack {
+            if shown {
+                VStack(alignment: .leading, spacing: DS.xs) {
+                    SectionLabel("File format")
+                    ForEach(ImageExport.formats) { format in
+                        option(format.name, selected: model.format == format.id) { model.format = format.id }
+                    }
+                    Hairline()
+                    SectionLabel("Resolution")
+                    ForEach([1.0, 2.0, 4.0], id: \.self) { scale in
+                        option(scale == 1 ? "Original size" : "\(Int(scale))× resample", selected: model.outputMultiplier == scale) {
+                            model.outputMultiplier = scale
+                        }
+                    }
+                }.transition(DS.Motion.pop(reduceMotion: reduceMotion))
+            }
+        }
+        .padding(DS.panelPadding).frame(width: DS.pinPopoverWidth)
+        .onAppear { withAnimation(DS.Motion.panel(reduceMotion)) { shown = true } }
+    }
+
+    private func option(_ title: String, selected: Bool, apply: @escaping () -> Void) -> some View {
+        Button { apply(); dismiss() } label: {
+            HStack {
+                Text(title).font(DS.body)
+                Spacer()
+                if selected { Icon("check", weight: .bold, size: DS.icon).foregroundStyle(DS.accent) }
+            }.padding(.vertical, DS.xs).contentShape(Rectangle())
+        }.buttonStyle(PressableStyle()).accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
 /// Reads the live document on its own, so dragging a control re-evaluates this label and not the whole editor.
 private struct DimensionTag: View {
     let model: EditorModel
@@ -221,28 +302,47 @@ private struct DimensionTag: View {
 
 // MARK: - Tool palette
 
+/// Center the palette when possible. At narrower sizes let it use the space between
+/// the window buttons and the inspector switcher before resorting to horizontal scrolling.
+private struct EditorPaletteLayout: Layout {
+    let height: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        CGSize(width: proposal.width ?? DS.editorSize.width, height: height)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let palette = subviews[0], switcher = subviews[1]
+        let right = bounds.maxX - switcher.sizeThatFits(.unspecified).width
+        switcher.place(at: CGPoint(x: right, y: bounds.midY), anchor: .leading, proposal: .unspecified)
+        let left = bounds.minX + DS.windowControlsClearance
+        let available = max(0, right - DS.sm - left)
+        let width = min(available, palette.sizeThatFits(.unspecified).width)
+        let x = max(left, min(bounds.midX - width / 2, right - DS.sm - width))
+        palette.place(at: CGPoint(x: x, y: bounds.midY), anchor: .leading, proposal: ProposedViewSize(width: width, height: bounds.height))
+    }
+}
+
 struct ToolPalette: View {
     @Bindable var model: EditorModel
     @Environment(\.colorScheme) private var scheme
 
-    private static let groups: [[String]] = [
-        ["select", "crop"],
-        ["arrow", "rectangle", "oval", "line"],
-        ["text", "counter", "drawing", "highlighter"],
-        ["blur", "pixelate", "erase", "spotlight", "magnifier"],
-        ["ruler", "picker"]
-    ]
+    @Namespace private var toolSelection
+    let configuration: EditorChrome
 
     var body: some View {
-        HStack(spacing: 2) {
-            ForEach(Array(Self.groups.enumerated()), id: \.offset) { index, group in
-                if index > 0 { separator }
-                ForEach(group, id: \.self) { id in toolButton(id) }
+        let buttons = HStack(spacing: DS.insetStroke) {
+            ForEach(Array(configuration.tools.enumerated()), id: \.element) { index, id in
+                if configuration.beginsGroup(at: index) { separator }
+                if id == "image" {
+                    IconButton("image-square", label: "Paste image · ⌘V") { model.pasteImage() }
+                } else { toolButton(id) }
             }
-            separator
-            IconButton("photo.badge.plus", label: "Paste image · ⌘V") { model.pasteImage() }
         }
-        .padding(6).frame(height: DS.barHeight).modifier(GlassSurface(radius: DS.pill))
+        ViewThatFits(in: .horizontal) {
+            buttons
+            ScrollView(.horizontal) { buttons }.scrollIndicators(.automatic)
+        }
+        .padding(DS.capsulePadding).frame(height: DS.capsuleHeight).modifier(GlassSurface(radius: DS.pill))
     }
     private var separator: some View {
         Rectangle().fill(DS.hairline(scheme)).frame(width: 1, height: 18).padding(.horizontal, DS.xs)
@@ -250,7 +350,7 @@ struct ToolPalette: View {
     private func toolButton(_ id: String) -> some View {
         let info = Self.info(id)
         let key = (model.toolShortcuts[id] ?? info.shortcut).uppercased()
-        return IconButton(info.symbol, label: "\(info.title) · \(key)", selected: model.tool == id) {
+        return IconButton(info.symbol, label: "\(info.title) · \(key)", selected: model.tool == id, selectionSpace: toolSelection) {
             if model.textPoint != nil { model.addText() }
             if id != "select" { model.selected = [] }
             model.tool = id
@@ -271,7 +371,7 @@ struct ToolPalette: View {
 
 @MainActor public final class EditorWindowController: NSWindowController {
     public let model: EditorModel
-    public init(document: CaptureDocument) {
+    public init(document: CaptureDocument, chrome: @escaping @MainActor () -> EditorChrome = { EditorChrome() }) {
         model = EditorModel(document: document)
         let size = DS.fittingWindowSize(preferred: DS.editorSize, available: NSScreen.main?.visibleFrame.size ?? DS.editorSize)
         let window = NSWindow(contentRect: CGRect(origin: .zero, size: size),
@@ -287,7 +387,7 @@ struct ToolPalette: View {
         toolbar.showsBaselineSeparator = false
         window.toolbar = toolbar
         window.toolbarStyle = .unified
-        let host = NSHostingView(rootView: EditorView(model: model))
+        let host = NSHostingView(rootView: EditorWindowContent(model: model, chrome: chrome))
         host.sizingOptions = []
         window.contentView = host
         window.setContentSize(size)
@@ -296,6 +396,13 @@ struct ToolPalette: View {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
     public func present() { NSApp.activate(ignoringOtherApps: true); showWindow(nil); window?.makeKeyAndOrderFront(nil) }
+}
+
+/// Reading the app's observed preferences here also updates editors already on screen.
+private struct EditorWindowContent: View {
+    let model: EditorModel
+    let chrome: @MainActor () -> EditorChrome
+    var body: some View { EditorView(model: model, chrome: chrome()) }
 }
 
 extension RGBA {

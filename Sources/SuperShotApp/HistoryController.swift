@@ -10,6 +10,7 @@ import DesignSystem
     let store: HistoryStore
     var entries: [HistoryEntry] = []
     var query = ""
+    var presentation = 0
     var error: String?
     var open: ((CaptureDocument) -> Void)?
     private var searchTask: Task<Void, Never>?
@@ -57,32 +58,63 @@ import DesignSystem
         super.init(window: window)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-    func present() { model.search(); NSApp.activate(ignoringOtherApps: true); showWindow(nil); window?.makeKeyAndOrderFront(nil) }
+    func present() {
+        if window?.isVisible != true { model.presentation &+= 1 }
+        model.search()
+        NSApp.activate(ignoringOtherApps: true)
+        showWindow(nil)
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+private enum HistoryPeriod: String, CaseIterable {
+    case all = "All", today = "Today", week = "This week"
+    func includes(_ date: Date, now: Date, calendar: Calendar) -> Bool {
+        switch self {
+        case .all: true
+        case .today: calendar.isDate(date, inSameDayAs: now)
+        case .week: calendar.isDate(date, equalTo: now, toGranularity: .weekOfYear)
+        }
+    }
 }
 
 struct HistoryView: View {
     @Bindable var model: HistoryModel
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @LocalState private var deleting: HistoryEntry?
+    @LocalState private var period = HistoryPeriod.all
 
     var body: some View {
+        let now = Date()
+        let entries = model.entries.filter { period.includes($0.date, now: now, calendar: .current) }
         VStack(spacing: 0) {
             header
+            HStack {
+                SegmentedChoice(HistoryPeriod.allCases.map { ($0, $0.rawValue, nil) }, selection: period) { period = $0 }
+                    .frame(width: DS.historyFilterWidth).accessibilityLabel("Capture date")
+                Spacer()
+                Text(entries.count == 1 ? "1 capture" : "\(entries.count) captures")
+                    .font(DS.mono).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, DS.xl).padding(.bottom, DS.md)
             Hairline()
-            ScrollView {
-                if model.entries.isEmpty { emptyState }
-                else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 210, maximum: 320), spacing: DS.lg)], spacing: DS.xl) {
-                        ForEach(model.entries) { entry in
+            if entries.isEmpty {
+                emptyState.frame(maxWidth: .infinity, maxHeight: .infinity).transition(.opacity)
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: DS.historyCardWidth), spacing: DS.lg)], spacing: DS.xl) {
+                        ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                             HistoryCard(entry: entry, url: model.store.thumbnailURL(entry.id),
                                         open: { model.openEntry(entry) }, copy: { model.copy(entry) }, delete: { deleting = entry })
+                                .staggeredAppear(index).transition(DS.Motion.rise(reduceMotion: reduceMotion))
                         }
                     }
-                    .padding(DS.xl)
+                    .padding(DS.xl).id(model.presentation)
                 }
             }
-            .scrollIndicators(.hidden)
         }
+        .animation(DS.Motion.gentle(reduceMotion), value: entries.map(\.id))
         .background(DS.background(scheme))
         .ignoresSafeArea()
         .onChange(of: model.query) { _, _ in model.search() }
@@ -97,39 +129,48 @@ struct HistoryView: View {
 
     private var header: some View {
         HStack(spacing: DS.md) {
-            Text("Library").font(.system(size: 22, weight: .bold))
-            Tag("\(model.entries.count)")
+            Text("Library").font(DS.title)
             Spacer()
             HStack(spacing: DS.sm) {
-                Icon("magnifyingglass", size: 14).foregroundStyle(.secondary)
-                TextField("Search by app, name, or text in the image", text: $model.query).textFieldStyle(.plain).font(DS.body)
+                Icon("magnifying-glass", size: DS.icon).foregroundStyle(.secondary)
+                TextField("Search apps or text in captures", text: $model.query).textFieldStyle(.plain).font(DS.body)
                 if !model.query.isEmpty {
                     Button { model.query = "" } label: { Icon("xmark.circle.fill").foregroundStyle(.tertiary) }.buttonStyle(.plain).help("Clear search")
                 }
             }
-            .padding(.horizontal, DS.md).frame(width: 320, height: 32)
+            .padding(.horizontal, DS.md).frame(width: DS.historySearchWidth, height: DS.toolButtonSize)
             .background(DS.card(scheme), in: Capsule())
             .overlay(Capsule().strokeBorder(DS.hairline(scheme)))
         }
-        .padding(.horizontal, DS.xl).padding(.top, 44).padding(.bottom, DS.lg)
+        .padding(.horizontal, DS.xl).padding(.top, DS.windowHeaderInset).padding(.bottom, DS.lg)
     }
 
     private var emptyState: some View {
-        VStack(spacing: DS.md) {
-            Icon(model.query.isEmpty ? "photo.stack" : "magnifyingglass", size: 41).foregroundStyle(.tertiary)
-            Text(model.query.isEmpty ? "No captures yet" : "No matches").font(DS.title)
-            Text(model.query.isEmpty ? "Everything you capture is kept here, and you can search for the words inside each image."
-                 : "Nothing in your library matches “\(model.query)”.")
-                .font(DS.body).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 340)
-        }
-        .frame(maxWidth: .infinity).padding(.top, 120)
+        let searching = !model.query.isEmpty
+        let filtered = period != .all
+        return VStack(spacing: DS.md) {
+            Icon(searching ? "magnifying-glass" : "images", size: DS.xl)
+                .frame(width: DS.zoomLabelWidth, height: DS.zoomLabelWidth)
+                .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.groupRadius))
+            Text(searching ? "No matching captures" : filtered ? "No captures this period" : "No captures yet").font(DS.title)
+            Text(searching ? "Try another app name or a word from the image."
+                 : filtered ? "Choose All to see your earlier captures." : "Your screenshots appear here when capture history is enabled.")
+                .font(DS.body).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            if searching || filtered {
+                Button(searching ? "Clear search" : "Show all captures") {
+                    if searching { model.query = "" } else { period = .all }
+                }.buttonStyle(QuietButtonStyle())
+            }
+        }.padding(DS.xl)
     }
 }
 
 private struct HistoryCard: View {
     @Environment(\.colorScheme) private var scheme
     @LocalState private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @LocalState private var image: NSImage?
+    @LocalState private var appIcon: NSImage?
     let entry: HistoryEntry
     let url: URL
     let open: () -> Void
@@ -141,12 +182,12 @@ private struct HistoryCard: View {
             Button(action: open) {
                 ZStack {
                     DS.card(scheme)
-                    if let image { Image(nsImage: image).resizable().scaledToFit().padding(DS.sm) }
+                    if let image { Image(nsImage: image).resizable().scaledToFit() }
                     else { Icon("photo", size: 26).foregroundStyle(.tertiary) }
                 }
-                .aspectRatio(1.5, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(hovering ? DS.accent : DS.hairline(scheme), lineWidth: hovering ? 1.5 : 1))
+                .aspectRatio(1.65, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: DS.groupRadius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: DS.groupRadius, style: .continuous).strokeBorder(hovering ? DS.accent : DS.hairline(scheme), lineWidth: hovering ? 1.5 : 1))
             }
             .buttonStyle(.plain).accessibilityLabel("Open \(entry.title)")
             .overlay(alignment: .topTrailing) {
@@ -159,21 +200,49 @@ private struct HistoryCard: View {
                     .transition(.opacity)
                 }
             }
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.title).font(DS.emphasis).lineLimit(1)
-                    Text(entry.date.formatted(.relative(presentation: .named))).font(DS.caption).foregroundStyle(.secondary)
+            HStack(spacing: DS.sm) {
+                Group {
+                    if let appIcon { Image(nsImage: appIcon).resizable().scaledToFit().saturation(0) }
+                    else { Icon("app-window", size: DS.iconSize).foregroundStyle(.secondary) }
                 }
-                Spacer()
-                Text(verbatim: "\(entry.width) × \(entry.height)").font(DS.mono).foregroundStyle(.tertiary)
+                .frame(width: DS.metadataIconSize, height: DS.metadataIconSize).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: DS.insetStroke) {
+                    Text(entry.title).font(DS.emphasis).lineLimit(1)
+                    Text(entry.date.formatted(date: .abbreviated, time: .shortened)).font(DS.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: DS.xs)
+                Text(verbatim: "\(entry.width) × \(entry.height)").font(DS.mono).foregroundStyle(.secondary)
             }
             .padding(.horizontal, DS.xs)
         }
+        .contextMenu {
+            Button("Open in editor", action: open)
+            Button("Copy image", action: copy)
+            Button("Delete…", role: .destructive, action: delete)
+        }
+        .hoverLift()
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
-        .task {
+        .animation(DS.Motion.hover(reduceMotion), value: hovering)
+        .task(id: url) {
+            appIcon = Self.sourceIcon(entry.title)
             let data = await Task.detached { try? Data(contentsOf: url) }.value
             if let data { image = NSImage(data: data) }
         }
+    }
+
+    private static func sourceIcon(_ title: String) -> NSImage? {
+        guard !title.contains("/"), !title.isEmpty else { return nil }
+        let workspace = NSWorkspace.shared
+        let running = workspace.runningApplications.first { $0.localizedName == title }
+        if let icon = running?.icon { return icon }
+        // Older captures store the source's display name, without a bundle identifier.
+        let directories = FileManager.default.urls(for: .applicationDirectory, in: .allDomainsMask)
+        for directory in directories {
+            for root in [directory, directory.appendingPathComponent("Utilities")] {
+                let url = root.appendingPathComponent(title).appendingPathExtension("app")
+                if FileManager.default.fileExists(atPath: url.path) { return workspace.icon(forFile: url.path) }
+            }
+        }
+        return nil
     }
 }

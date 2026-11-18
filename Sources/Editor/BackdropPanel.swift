@@ -1,13 +1,16 @@
 import SwiftUI
 import AppKit
 import Document
+import Render
 import DesignSystem
 
 /// Left-hand panel: everything about what sits behind and around the screenshot.
 struct BackdropPanel: View {
     @Bindable var model: EditorModel
     @Environment(\.colorScheme) private var scheme
-    @LocalState private var naming = false
+    @Namespace private var selection
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @LocalState private var showingPresets = false
 
     private var backdrop: Backdrop { model.current.backdrop }
 
@@ -16,11 +19,11 @@ struct BackdropPanel: View {
             HStack {
                 Text("Backdrop").font(DS.title)
                 Spacer()
-                IconButton("xmark", label: "Hide backdrop panel", size: 24) { model.showBackdrop = false }
+                IconButton("xmark", label: "Hide backdrop panel", size: DS.xl) { model.showBackdrop = false }
             }
-            .padding(.horizontal, DS.lg).padding(.top, DS.lg).padding(.bottom, DS.md)
+            .padding(.horizontal, DS.panelPadding).padding(.top, DS.md).padding(.bottom, DS.sm)
             ScrollView {
-                VStack(alignment: .leading, spacing: DS.lg) {
+                VStack(alignment: .leading, spacing: DS.md) {
                     SegmentedChoice([(Backdrop.Fill.none, "None", nil), (.solid, "Color", nil), (.gradient, "Gradient", nil), (.wallpaper, "Image", nil)],
                                     selection: backdrop.fill) { fill in
                         if fill == .wallpaper && backdrop.wallpaper == nil { model.selectWallpaper(desktop: true) }
@@ -35,12 +38,24 @@ struct BackdropPanel: View {
                     if backdrop.fill != .none {
                         frameControls
                         positionControls
-                        presets
                     }
                 }
-                .padding(.horizontal, DS.lg).padding(.bottom, DS.lg)
+                .padding(.horizontal, DS.panelPadding).padding(.bottom, DS.panelPadding)
             }
-            .scrollIndicators(.hidden)
+            .scrollIndicators(.automatic)
+            Hairline()
+            Button { showingPresets.toggle() } label: {
+                HStack(spacing: DS.sm) {
+                    Icon("stack-simple", size: DS.icon)
+                    Text("Presets").font(DS.emphasis)
+                    Spacer()
+                    Icon("caret-up", size: DS.md)
+                }.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).padding(.horizontal, DS.panelPadding).padding(.vertical, DS.md)
+            .popover(isPresented: $showingPresets) {
+                BackdropPresets(model: model)
+            }
         }
         .frame(width: DS.backdropPanelWidth)
         .modifier(GlassSurface())
@@ -78,7 +93,7 @@ struct BackdropPanel: View {
     }
 
     private func gradientGrid(_ presets: [DS.GradientPreset]) -> some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: DS.sm), count: 4), spacing: DS.sm) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: DS.xs), count: 4), spacing: DS.xs) {
             ForEach(presets) { preset in
                 let stops = preset.hex.map { RGBA(hex: $0) }
                 let selected = backdrop.fill == .gradient && backdrop.stops == stops
@@ -86,20 +101,24 @@ struct BackdropPanel: View {
                     model.commit { $0.backdrop.fill = .gradient; $0.backdrop.stops = stops; $0.backdrop.angle = preset.angle }
                 } label: {
                     let points = DS.gradientPoints(angle: preset.angle)
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(LinearGradient(colors: preset.colors, startPoint: points.0, endPoint: points.1))
-                        .frame(height: 40)
-                        .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous).fill(.white.opacity(0.92)).padding(.horizontal, 11).padding(.vertical, 10)
-                            .shadow(color: .black.opacity(0.25), radius: 3, y: 2))
-                        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(DS.hairline(scheme)))
-                        .padding(3)
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(selected ? DS.actionInk(scheme) : .clear, lineWidth: 2))
+                    let tile = RoundedRectangle(cornerRadius: DS.controlRadius, style: .continuous)
+                    tile.fill(LinearGradient(colors: preset.colors, startPoint: points.0, endPoint: points.1))
+                        .frame(height: DS.swatchTileHeight)
+                        .overlay(tile.strokeBorder(DS.hairline(scheme)))
+                        .padding(DS.insetStroke)
+                        .overlay {
+                            if selected {
+                                RoundedRectangle(cornerRadius: DS.smallRadius).strokeBorder(DS.accent, lineWidth: DS.insetStroke)
+                                    .slidingSelection("gradient", in: selection, reduceMotion: reduceMotion)
+                            }
+                        }
                 }
-                .buttonStyle(.plain).help(preset.name).accessibilityLabel("\(preset.name) gradient")
+                .buttonStyle(PressableStyle()).hoverLift().help(preset.name).accessibilityLabel("\(preset.name) gradient")
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
-        .padding(-3)
+        .padding(-DS.insetStroke)
+        .animation(DS.Motion.snappy(reduceMotion), value: backdrop.stops)
     }
 
     private var solidPicker: some View {
@@ -129,7 +148,7 @@ struct BackdropPanel: View {
     private var wallpaperPicker: some View {
         VStack(alignment: .leading, spacing: DS.md) {
             HStack(spacing: DS.sm) {
-                sourceTile("desktopcomputer", "Desktop") { model.selectWallpaper(desktop: true) }
+                sourceTile("monitor", "Desktop") { model.selectWallpaper(desktop: true) }
                 sourceTile("photo.on.rectangle.angled", "Choose…") { model.selectWallpaper() }
             }
             slider("Blur", backdrop.blur, 0...60) { $0.blur = $1 }
@@ -165,21 +184,26 @@ struct BackdropPanel: View {
             HStack(alignment: .top, spacing: DS.lg) {
                 VStack(alignment: .leading, spacing: DS.sm) {
                     SectionLabel("Align")
-                    VStack(spacing: 3) {
+                    VStack(spacing: 0) {
                         ForEach(0..<3, id: \.self) { row in
-                            HStack(spacing: 3) {
+                            HStack(spacing: 0) {
                                 ForEach(0..<3, id: \.self) { column in alignmentCell(row: row, column: column) }
                             }
                         }
                     }
+                    .padding(DS.insetStroke)
+                    .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.buttonRadius))
                 }
                 VStack(alignment: .leading, spacing: DS.sm) {
                     SectionLabel("Ratio")
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 3), spacing: 4) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: DS.xs), count: 3), spacing: DS.xs) {
                         ForEach(Self.ratios, id: \.title) { item in ratioChip(item.title, item.value) }
                     }
                 }
             }
+            .animation(DS.Motion.snappy(reduceMotion), value: backdrop.ratio)
+            .animation(DS.Motion.snappy(reduceMotion), value: backdrop.alignmentX)
+            .animation(DS.Motion.snappy(reduceMotion), value: backdrop.alignmentY)
             HStack(spacing: DS.sm) {
                 Button("Auto-balance") { model.trim(balance: true) }.buttonStyle(QuietButtonStyle()).disabled(model.busy)
                     .help("Even out blank margins around the content")
@@ -198,9 +222,13 @@ struct BackdropPanel: View {
     private func ratioChip(_ title: String, _ ratio: Double) -> some View {
         let selected = abs(backdrop.ratio - ratio) < 0.001
         return Button { model.commit { $0.backdrop.ratio = ratio } } label: {
-            Text(title).font(DS.caption).frame(maxWidth: .infinity).frame(height: 24)
-                .foregroundStyle(selected ? Color.white : Color.primary)
-                .background(selected ? DS.accent : DS.card(scheme), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            Text(title).font(DS.mono).frame(maxWidth: .infinity).frame(height: DS.swatchTileHeight)
+                .foregroundStyle(selected ? DS.onAccent : Color.primary)
+                .background {
+                    let shape = RoundedRectangle(cornerRadius: DS.controlRadius)
+                    shape.fill(DS.card(scheme))
+                    if selected { shape.fill(DS.accent).slidingSelection("ratio", in: selection, reduceMotion: reduceMotion) }
+                }
         }
         .buttonStyle(.plain).accessibilityLabel("Aspect ratio \(title)")
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -209,29 +237,72 @@ struct BackdropPanel: View {
         let x = Double(column) / 2, y = Double(row) / 2
         let selected = backdrop.alignmentX == x && backdrop.alignmentY == y
         return Button { model.commit { $0.backdrop.alignmentX = x; $0.backdrop.alignmentY = y } } label: {
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(selected ? DS.accent : DS.card(scheme))
-                .frame(width: 24, height: 18)
+            Circle().fill(selected ? DS.onAccent : Color.secondary)
+                .frame(width: DS.xs, height: DS.xs)
+                .frame(width: DS.alignmentTarget, height: DS.alignmentTarget)
+                .background {
+                    if selected {
+                        RoundedRectangle(cornerRadius: DS.controlRadius).fill(DS.accent)
+                            .slidingSelection("alignment", in: selection, reduceMotion: reduceMotion)
+                    }
+                }
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain).accessibilityLabel("Align row \(row + 1), column \(column + 1)")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    // MARK: Presets
+    // MARK: Pieces
+
+    /// Previews while dragging and records one undo step when the drag ends.
+    private func slider(_ title: String, _ value: Double, _ range: ClosedRange<Double>, percent: Bool = false, suffix: String = "",
+                        set: @escaping (inout Backdrop, Double) -> Void) -> some View {
+        ValueSlider(title, value: value, in: range, layout: .row,
+                    format: { percent ? String(format: "%.0f%%", $0 * 100) : String(format: "%.0f", $0) + suffix },
+                    onChange: { value in model.previewChange { set(&$0.backdrop, value) } },
+                    onEditingChanged: { editing in if !editing { model.commitDraft() } })
+    }
+    private func colorWell(_ label: String, _ color: RGBA, set: @escaping (inout Backdrop, RGBA) -> Void) -> some View {
+        ColorPicker(label, selection: Binding(get: { Color(color.nsColor) }, set: { value in
+            let next = RGBA(NSColor(value))
+            model.commit { set(&$0.backdrop, next) }
+        }), supportsOpacity: false).labelsHidden().fixedSize()
+            .frame(width: DS.metadataIconSize, height: DS.metadataIconSize).clipShape(Circle())
+            .overlay(Circle().strokeBorder(DS.hairline(scheme)).allowsHitTesting(false)).accessibilityLabel(label)
+    }
+}
+
+package struct BackdropPresets: View {
+    @Bindable private var model: EditorModel
+    @LocalState private var naming = false
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    package init(model: EditorModel) { self.model = model }
+
+    package var body: some View {
+        ViewThatFits(in: .vertical) {
+            presets.fixedSize(horizontal: false, vertical: true)
+            ScrollView { presets }
+        }
+        .padding(DS.panelPadding)
+        .frame(width: DS.backdropPanelWidth)
+        .frame(maxHeight: DS.sidePanelWidth)
+        .animation(DS.Motion.panel(reduceMotion), value: naming)
+    }
 
     private var presets: some View {
         VStack(alignment: .leading, spacing: DS.md) {
-            Hairline()
             HStack {
-                SectionLabel("Presets")
+                Text("Saved presets").font(DS.emphasis)
                 Spacer()
-                Button { naming.toggle() } label: { Icon(naming ? "xmark" : "plus", weight: .bold, size: 13) }
+                Button { naming.toggle() } label: { Icon(naming ? "xmark" : "plus", weight: .bold, size: DS.icon) }
                     .buttonStyle(.plain).foregroundStyle(.secondary).help("Save the current backdrop as a preset")
             }
             if naming {
                 HStack(spacing: DS.sm) {
                     TextField("Preset name", text: $model.presetName)
-                        .textFieldStyle(.plain).font(DS.body).padding(.horizontal, DS.sm).frame(height: 28)
+                        .textFieldStyle(.plain).font(DS.body).padding(.horizontal, DS.sm).frame(height: DS.toolButtonSize)
                         .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.controlRadius, style: .continuous))
                         .onSubmit(savePreset)
                     Button("Save", action: savePreset).buttonStyle(PrimaryButtonStyle())
@@ -245,11 +316,11 @@ struct BackdropPanel: View {
             ForEach(model.savedPresets) { preset in
                 Button { model.commit { $0.backdrop = preset.backdrop } } label: {
                     HStack(spacing: DS.sm) {
-                        presetSwatch(preset.backdrop)
+                        BackdropThumbnail(document: model.document, backdrop: preset.backdrop)
                         Text(preset.name).font(DS.body).lineLimit(1)
                         Spacer()
                     }.contentShape(Rectangle())
-                }.buttonStyle(.plain)
+                }.buttonStyle(PressableStyle()).hoverLift()
             }
             HStack(spacing: DS.sm) {
                 Button("Use for new captures") { model.saveBackdropAction?(model.document.backdrop); model.status = "Backdrop saved for new captures" }
@@ -264,29 +335,30 @@ struct BackdropPanel: View {
         model.savePresetAction?(name, model.document.backdrop)
         model.presetName = ""; naming = false
     }
-    private func presetSwatch(_ backdrop: Backdrop) -> some View {
-        let points = DS.gradientPoints(angle: backdrop.angle ?? 45)
-        let colors = backdrop.fill == .gradient ? backdrop.gradientStops.map { Color($0.nsColor) } : [Color(backdrop.color.nsColor)]
-        return RoundedRectangle(cornerRadius: 5, style: .continuous)
-            .fill(LinearGradient(colors: colors.count > 1 ? colors : colors + colors, startPoint: points.0, endPoint: points.1))
-            .frame(width: 28, height: 20)
-            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(DS.hairline(scheme)))
-    }
+}
 
-    // MARK: Pieces
+/// Render a named look with the same layers, crop, and renderer as the canvas.
+private struct BackdropThumbnail: View {
+    let document: CaptureDocument
+    let backdrop: Backdrop
+    @LocalState private var image: CGImage?
 
-    /// Previews while dragging and records one undo step when the drag ends.
-    private func slider(_ title: String, _ value: Double, _ range: ClosedRange<Double>, percent: Bool = false, suffix: String = "",
-                        set: @escaping (inout Backdrop, Double) -> Void) -> some View {
-        ValueSlider(title, value: value, in: range,
-                    format: { percent ? String(format: "%.0f%%", $0 * 100) : String(format: "%.0f", $0) + suffix },
-                    onChange: { value in model.previewChange { set(&$0.backdrop, value) } },
-                    onEditingChanged: { editing in if !editing { model.commitDraft() } })
-    }
-    private func colorWell(_ label: String, _ color: RGBA, set: @escaping (inout Backdrop, RGBA) -> Void) -> some View {
-        ColorPicker(label, selection: Binding(get: { Color(color.nsColor) }, set: { value in
-            let next = RGBA(NSColor(value))
-            model.commit { set(&$0.backdrop, next) }
-        }), supportsOpacity: false).labelsHidden().frame(width: 30)
+    var body: some View {
+        Group {
+            if let image { Image(decorative: image, scale: 1).resizable().scaledToFit() }
+            else { Icon("image") }
+        }
+        .frame(width: DS.xxl, height: DS.swatchTileHeight)
+        .clipShape(RoundedRectangle(cornerRadius: DS.xs))
+        .task(id: document) {
+            var preview = document
+            preview.backdrop = backdrop
+            let snapshot = preview
+            let result = await Task.detached(priority: .utility) {
+                let size = DocumentRenderer.layout(snapshot).size
+                return try? DocumentRenderer.render(snapshot, scale: min(1, 96 / max(size.width, size.height)))
+            }.value
+            if !Task.isCancelled { image = result }
+        }
     }
 }

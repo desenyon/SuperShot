@@ -181,7 +181,7 @@ import UniformTypeIdentifiers
         if let copyRequest { await copy(styled, request: copyRequest) }
         if actions.contains(.save) { await save(styled, choose:false, project:project) }
     }
-    func copy(_ capture: CapturedImage, request: ClipboardWriter.Request? = nil) async {
+    @discardableResult func copy(_ capture: CapturedImage, request: ClipboardWriter.Request? = nil, reportError: Bool = true) async -> EditorWriteResult {
         let request = request ?? clipboard.begin()
         do {
             let preferences=settings.preferences
@@ -190,10 +190,13 @@ import UniformTypeIdentifiers
                 let image=try ImageExport.transformed(capture.image,factor:preferences.oneX ? 1/capture.scale:1,sRGB:preferences.convertToSRGB)
                 return try ImageExport.encode(image,type:type,quality:preferences.quality)
             }.value
-            try clipboard.write(data, type: type, for: request)
-        } catch { showError(error.localizedDescription) }
+            return try clipboard.write(data, type: type, for: request) ? .written : .failed("The clipboard changed before the copy finished.")
+        } catch {
+            if reportError { showError(error.localizedDescription) }
+            return .failed(error.localizedDescription)
+        }
     }
-    func save(_ capture: CapturedImage, choose: Bool, type: String? = nil, project: CaptureDocument? = nil) async {
+    @discardableResult func save(_ capture: CapturedImage, choose: Bool, type: String? = nil, project: CaptureDocument? = nil, reportError: Bool = true) async -> EditorWriteResult {
         let preferences=settings.preferences
         let type=type ?? preferences.fileFormat
         let format = ImageExport.formats.first { $0.id == type }
@@ -201,12 +204,12 @@ import UniformTypeIdentifiers
         settings.preferences.filenameCounter = preferences.filenameCounter >= Int.max-1 ? 1:preferences.filenameCounter+1
         let destination: URL
         if choose {
-            guard !choosingSave else{return};choosingSave=true
+            guard !choosingSave else{return .cancelled};choosingSave=true
             defer{choosingSave=false}
             let panel = NSSavePanel(); panel.nameFieldStringValue=filename
             panel.allowedContentTypes=[UTType(type) ?? .png]
             NSApp.activate(ignoringOtherApps:true)
-            guard panel.runModal() == .OK, let url=panel.url else { return }
+            guard panel.runModal() == .OK, let url=panel.url else { return .cancelled }
             destination=url
         } else {
             var folder=URL(fileURLWithPath:preferences.saveFolder)
@@ -229,7 +232,11 @@ import UniformTypeIdentifiers
                 } else if choose {try data.write(to:destination,options:.atomic)}
                 else {_ = try ImageExport.writeUnique(data,to:destination)}
             }.value
-        } catch { showError(error.localizedDescription) }
+            return .written
+        } catch {
+            if reportError { showError(error.localizedDescription) }
+            return .failed(error.localizedDescription)
+        }
     }
     private func thumbnail(_ capture: CapturedImage, display: CGImage? = nil) {
         let presented = display.map{CapturedImage(image:$0,scale:capture.scale,source:capture.source)} ?? capture
@@ -312,7 +319,9 @@ import UniformTypeIdentifiers
     }
     func openDocument(_ document: CaptureDocument) {
         if let existing=editors.first(where:{$0.model.document.id == document.id}) {existing.present();return}
-        let editor = EditorWindowController(document: document)
+        let editor = EditorWindowController(document: document) { [settings] in
+            EditorChrome(tools: settings.preferences.customization.editorTools)
+        }
         editor.model.format = settings.preferences.fileFormat
         editor.model.toolShortcuts = settings.preferences.toolShortcuts
         editor.model.savedPresets = settings.preferences.backdropPresets
@@ -333,8 +342,13 @@ import UniformTypeIdentifiers
                 catch {model?.message="Edits could not be saved to history: \(error.localizedDescription)"}
             }
         }
-        editor.model.copyAction = { [weak self] image in Task { await self?.copy(CapturedImage(image: image, scale: document.scale, source: document.source)) } }
-        editor.model.saveAction = { [weak self] image, type, snapshot in Task { await self?.save(CapturedImage(image: image, scale: snapshot.scale, source: snapshot.source), choose: true, type: type, project: snapshot) } }
+        editor.model.copyAction = { [weak self] image in
+            await self?.copy(CapturedImage(image: image, scale: document.scale, source: document.source), reportError: false) ?? .cancelled
+        }
+        editor.model.saveAction = { [weak self] image, type, snapshot in
+            await self?.save(CapturedImage(image: image, scale: snapshot.scale, source: snapshot.source),
+                             choose: true, type: type, project: snapshot, reportError: false) ?? .cancelled
+        }
         editor.model.pinAction = { [weak self] image in self?.pinImage(image) }
         // Flush closed sessions before releasing them; the current document always wins over stale disk snapshots.
         for closed in editors where closed.window?.isVisible != true {closed.model.flushAutosave()}
