@@ -101,10 +101,10 @@ struct HistoryView: View {
             Tag("\(model.entries.count)")
             Spacer()
             HStack(spacing: DS.sm) {
-                Image(systemName: "magnifyingglass").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                Icon("magnifyingglass", size: 14).foregroundStyle(.secondary)
                 TextField("Search by app, name, or text in the image", text: $model.query).textFieldStyle(.plain).font(DS.body)
                 if !model.query.isEmpty {
-                    Button { model.query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }.buttonStyle(.plain).help("Clear search")
+                    Button { model.query = "" } label: { Icon("xmark.circle.fill").foregroundStyle(.tertiary) }.buttonStyle(.plain).help("Clear search")
                 }
             }
             .padding(.horizontal, DS.md).frame(width: 320, height: 32)
@@ -116,7 +116,7 @@ struct HistoryView: View {
 
     private var emptyState: some View {
         VStack(spacing: DS.md) {
-            Image(systemName: model.query.isEmpty ? "photo.stack" : "magnifyingglass").font(.system(size: 34, weight: .light)).foregroundStyle(.tertiary)
+            Icon(model.query.isEmpty ? "photo.stack" : "magnifyingglass", size: 41).foregroundStyle(.tertiary)
             Text(model.query.isEmpty ? "No captures yet" : "No matches").font(DS.title)
             Text(model.query.isEmpty ? "Everything you capture is kept here, and you can search for the words inside each image."
                  : "Nothing in your library matches “\(model.query)”.")
@@ -142,7 +142,7 @@ private struct HistoryCard: View {
                 ZStack {
                     DS.card(scheme)
                     if let image { Image(nsImage: image).resizable().scaledToFit().padding(DS.sm) }
-                    else { Image(systemName: "photo").font(.system(size: 22, weight: .light)).foregroundStyle(.tertiary) }
+                    else { Icon("photo", size: 26).foregroundStyle(.tertiary) }
                 }
                 .aspectRatio(1.5, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))

@@ -100,12 +100,12 @@ public struct SettingsView: View {
             Text("SuperShot").font(DS.emphasis)
                 .padding(.horizontal, DS.sm).padding(.bottom, DS.md)
             HStack(spacing: DS.xs) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                Icon("magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
                 TextField("Search settings", text: $search).textFieldStyle(.plain)
                     .focused($searchFocused).focusEffectDisabled()
                     .accessibilityLabel("Search settings")
                 if !search.isEmpty {
-                    Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    Button { search = "" } label: { Icon("xmark.circle.fill") }
                         .buttonStyle(SettingsButtonStyle(kind: .plain)).accessibilityLabel("Clear search")
                 }
             }
@@ -117,7 +117,7 @@ public struct SettingsView: View {
             ForEach(matchingSections, id: \.self) { item in
                 Button { section = item } label: {
                     HStack(spacing: DS.sm) {
-                        Image(systemName: item.icon).font(S.label.weight(.regular))
+                        Icon(item.icon).font(S.label.weight(.regular))
                             .frame(width: DS.lg).foregroundStyle(.secondary).accessibilityHidden(true)
                         Text(item.rawValue).font(S.label)
                         Spacer(minLength: 0)
@@ -133,7 +133,7 @@ public struct SettingsView: View {
             Spacer(minLength: DS.lg)
             Button { section = .privacy } label: {
                 HStack(spacing: DS.xs) {
-                    Image(systemName: hasScreenAccess ? "checkmark.shield" : "exclamationmark.shield")
+                    Icon(hasScreenAccess ? "checkmark.shield" : "exclamationmark.shield")
                         .accessibilityHidden(true)
                     Text(hasScreenAccess ? "Screen access allowed" : "Screen access needed")
                 }.font(S.detail).foregroundStyle(.secondary)
@@ -260,7 +260,7 @@ public struct SettingsView: View {
     private func actionChoice(_ action: AfterCapture, selected: Bool, perform: @escaping () -> Void) -> some View {
         Button(action: perform) {
             HStack(spacing: DS.xs) {
-                Image(systemName: selected ? "checkmark.square.fill" : "square")
+                Icon(selected ? "checkmark.square.fill" : "square")
                     .foregroundStyle(selected ? Color.primary : Color.secondary).accessibilityHidden(true)
                 Text(action.shortTitle).lineLimit(1)
             }.font(S.detail).frame(maxWidth: .infinity).frame(height: S.controlHeight)
@@ -303,7 +303,7 @@ public struct SettingsView: View {
             }
             group("Click-through lock", footer: "Locked pins let you click the app behind them. Choose Unlock Pins in the SuperShot menu to interact with them again.") {
                 HStack(spacing: DS.sm) {
-                    Image(systemName: "lock").foregroundStyle(.secondary)
+                    Icon("lock").foregroundStyle(.secondary)
                     Text("Hover over a pin and choose the lock button").font(S.label)
                 }
             }
@@ -416,7 +416,7 @@ public struct SettingsView: View {
                                      recordingChanged: { store.isRecordingShortcut = $0 }) { shortcut in assign(shortcut, to: action.id) }
                         .frame(width: 124, height: S.controlHeight).accessibilityLabel("\(action.title) shortcut")
                     Button { store.preferences.shortcuts[action.id] = nil } label: {
-                        Image(systemName: "xmark").font(S.detail).foregroundStyle(.secondary)
+                        Icon("xmark").font(S.detail).foregroundStyle(.secondary)
                     }
                     .buttonStyle(SettingsButtonStyle(kind: .plain)).help("Remove shortcut")
                     .accessibilityLabel("Remove \(action.title) shortcut")
@@ -535,7 +535,7 @@ public struct SettingsView: View {
     }
     private func notice(_ message: String) -> some View {
         HStack(alignment: .top, spacing: DS.sm) {
-            Image(systemName: "exclamationmark.triangle").accessibilityHidden(true)
+            Icon("exclamationmark.triangle").accessibilityHidden(true)
             Text(message).font(S.detail).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }.foregroundStyle(.secondary).padding(.horizontal, DS.xs)

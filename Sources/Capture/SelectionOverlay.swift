@@ -197,12 +197,9 @@ private final class OverlayWindow: NSWindow { override var canBecomeKey: Bool { 
                 (primary ? DS.nsAccent : NSColor.white.withAlphaComponent(0.12)).setFill()
                 NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 0), xRadius: 11, yRadius: 11).fill()
             }
-            let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium).applying(.init(paletteColors: [.white]))
-            if let symbol = NSImage(systemSymbolName: action.symbol, accessibilityDescription: action.title)?.withSymbolConfiguration(configuration) {
-                let icon = symbol.size
-                symbol.draw(in: CGRect(x: rect.midX - icon.width / 2, y: rect.minY + 8 + (18 - icon.height) / 2, width: icon.width, height: icon.height),
-                            from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-            }
+            let symbol = Icons.tinted(action.symbol, color: .white, weight: primary ? .fill : .regular, size: 20)
+            symbol.draw(in: CGRect(x: rect.midX - 10, y: rect.minY + 7, width: 20, height: 20),
+                        from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 10, weight: .medium), .foregroundColor: NSColor.white.withAlphaComponent(primary ? 1 : 0.8)]
             let label = (action.title as NSString).size(withAttributes: attributes)
             (action.title as NSString).draw(at: CGPoint(x: rect.midX - label.width / 2, y: rect.maxY - label.height - 6), withAttributes: attributes)

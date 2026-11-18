@@ -138,7 +138,7 @@ struct BackdropPanel: View {
     private func sourceTile(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 6) {
-                Image(systemName: symbol).font(.system(size: 17, weight: .medium))
+                Icon(symbol, size: 20)
                 Text(title).font(DS.caption)
             }
             .frame(maxWidth: .infinity).frame(height: 62)
@@ -225,7 +225,7 @@ struct BackdropPanel: View {
             HStack {
                 SectionLabel("Presets")
                 Spacer()
-                Button { naming.toggle() } label: { Image(systemName: naming ? "xmark" : "plus").font(.system(size: 11, weight: .semibold)) }
+                Button { naming.toggle() } label: { Icon(naming ? "xmark" : "plus", weight: .bold, size: 13) }
                     .buttonStyle(.plain).foregroundStyle(.secondary).help("Save the current backdrop as a preset")
             }
             if naming {

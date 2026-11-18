@@ -56,7 +56,7 @@ struct SidePanel: View {
             ForEach(model.document.layers.reversed()) { layer in
                 let selected = model.selected.contains(layer.id)
                 HStack(spacing: DS.sm) {
-                    Image(systemName: ToolRegistry.tool(layer.kind.rawValue)?.symbol ?? "photo")
+                    Icon(ToolRegistry.tool(layer.kind.rawValue)?.symbol ?? "photo")
                         .font(.system(size: 12, weight: .medium)).frame(width: 26, height: 26)
                         .foregroundStyle(selected ? Color.white : Color.primary)
                         .background(selected ? DS.accent : DS.hover(scheme), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
@@ -67,7 +67,7 @@ struct SidePanel: View {
                         Circle().fill(Color(layer.color.nsColor)).frame(width: 10, height: 10).overlay(Circle().strokeBorder(DS.hairline(scheme)))
                     }
                     Button { model.selected = [layer.id]; model.deleteSelection() } label: {
-                        Image(systemName: "trash").font(.system(size: 11)).foregroundStyle(.secondary).frame(width: 22, height: 22)
+                        Icon("trash", size: 13).foregroundStyle(.secondary).frame(width: 22, height: 22)
                     }.buttonStyle(.plain).help("Delete layer")
                 }
                 .padding(6)
@@ -77,7 +77,7 @@ struct SidePanel: View {
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
             HStack(spacing: DS.sm) {
-                Image(systemName: "lock.fill").font(.system(size: 11)).frame(width: 26, height: 26).foregroundStyle(.secondary)
+                Icon("lock.fill", size: 13).frame(width: 26, height: 26).foregroundStyle(.secondary)
                     .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Original image").font(DS.body)
@@ -131,7 +131,7 @@ struct SidePanel: View {
     private var smartTools: some View {
         VStack(alignment: .leading, spacing: DS.md) {
             HStack(spacing: 6) {
-                Image(systemName: "lock.shield").font(.system(size: 11, weight: .semibold))
+                Icon("lock.shield", weight: .bold, size: 13)
                 Text("Runs on this Mac. Nothing is uploaded.").font(DS.caption)
             }.foregroundStyle(.secondary)
             SectionLabel("Clean up")
@@ -192,7 +192,7 @@ struct SidePanel: View {
                 Card {
                     Text(model.generatedText).font(DS.body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Button { model.copyText(model.generatedText) } label: { Label("Copy result", systemImage: "doc.on.doc") }.buttonStyle(QuietButtonStyle())
+                Button { model.copyText(model.generatedText) } label: { Label { Text("Copy result") } icon: { Icon("doc.on.doc", size: 16) } }.buttonStyle(QuietButtonStyle())
             }
             if let result = model.recognition {
                 ForEach(result.codes) { code in codeCard(code) }
@@ -204,7 +204,7 @@ struct SidePanel: View {
                         Spacer()
                         Button("Copy all") { model.copyText(result.transcript) }.buttonStyle(.plain).font(DS.caption).foregroundStyle(DS.actionInk(scheme))
                     }
-                    Button { model.tool = "liveText" } label: { Label("Select text on the image", systemImage: "cursorarrow.rays") }
+                    Button { model.tool = "liveText" } label: { Label { Text("Select text on the image") } icon: { Icon("cursorarrow.rays", size: 16) } }
                         .buttonStyle(QuietButtonStyle())
                     Card(padding: DS.xs) {
                         ForEach(result.text) { region in
@@ -217,7 +217,7 @@ struct SidePanel: View {
                 }
             } else if !model.busy && model.redactions.isEmpty && model.generatedText.isEmpty {
                 emptyState("text.viewfinder", "Read this image", "Find text, links, and QR codes. Everything stays on your Mac.")
-                Button { model.recognize() } label: { Label("Recognize text", systemImage: "text.viewfinder") }.buttonStyle(PrimaryButtonStyle())
+                Button { model.recognize() } label: { Label { Text("Recognize text") } icon: { Icon("text.viewfinder", size: 16) } }.buttonStyle(PrimaryButtonStyle())
             }
         }
     }
@@ -225,7 +225,7 @@ struct SidePanel: View {
     private func codeCard(_ code: CodeRegion) -> some View {
         Card {
             HStack(spacing: DS.sm) {
-                Image(systemName: "qrcode").font(.system(size: 14, weight: .medium))
+                Icon("qrcode", size: 17)
                 Text("Code found").font(DS.emphasis)
             }
             Text(code.payload).font(DS.mono).textSelection(.enabled).lineLimit(4).padding(.vertical, DS.sm)
@@ -260,7 +260,7 @@ struct SidePanel: View {
 
     private func emptyState(_ symbol: String, _ title: String, _ message: String) -> some View {
         VStack(spacing: DS.sm) {
-            Image(systemName: symbol).font(.system(size: 24, weight: .light)).foregroundStyle(.tertiary)
+            Icon(symbol, size: 29).foregroundStyle(.tertiary)
             Text(title).font(DS.emphasis)
             Text(message).font(DS.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
         }
@@ -285,7 +285,7 @@ struct ActionRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: DS.md) {
-                Image(systemName: symbol).font(.system(size: 13, weight: .medium)).frame(width: 28, height: 28)
+                Icon(symbol, size: 16).frame(width: 28, height: 28)
                     .foregroundStyle(DS.actionInk(scheme))
                     .background(DS.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 VStack(alignment: .leading, spacing: 1) {

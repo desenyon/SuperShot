@@ -17,7 +17,7 @@ struct WelcomeView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.xl) {
             HStack(spacing: DS.sm) {
-                Image(systemName: "viewfinder").foregroundStyle(.secondary)
+                Icon("viewfinder").foregroundStyle(.secondary)
                 Text("SuperShot").font(DS.emphasis)
                 Spacer()
                 Text("Setup").font(DS.caption).foregroundStyle(.secondary)
@@ -31,7 +31,7 @@ struct WelcomeView: View {
                 HStack {
                     Text("Screen Recording").font(DS.body)
                     Spacer()
-                    Image(systemName: ready ? "checkmark.circle.fill" : "lock").foregroundStyle(ready ? DS.success : Color.secondary)
+                    Icon(ready ? "checkmark.circle.fill" : "lock").foregroundStyle(ready ? DS.success : Color.secondary)
                     Text(ready ? "Allowed" : "Required").font(DS.caption).foregroundStyle(.secondary)
                 }
                 Hairline()

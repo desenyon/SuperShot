@@ -400,7 +400,7 @@ struct ThumbnailView: View {
                 .onDrag { NSItemProvider(object: NSImage(cgImage: capture.image, size: .zero)) }
             if hovering {
                 Color.black.opacity(0.38)
-                Button(action: open) { Label("Edit", systemImage: "pencil.tip.crop.circle") }.buttonStyle(PrimaryButtonStyle())
+                Button(action: open) { Label { Text("Edit") } icon: { Icon("pencil.tip.crop.circle", size: 16) } }.buttonStyle(PrimaryButtonStyle())
                     .accessibilityLabel("Open in editor")
             }
         }
@@ -439,7 +439,7 @@ struct CodeResultsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.md) {
                 HStack(spacing: DS.sm) {
-                    Image(systemName: "qrcode.viewfinder").font(.system(size: 18, weight: .medium)).foregroundStyle(DS.actionInk(scheme))
+                    Icon("qrcode.viewfinder", size: 22).foregroundStyle(DS.actionInk(scheme))
                     Text(codes.count == 1 ? "Code found" : "\(codes.count) codes found").font(DS.title)
                 }
                 ForEach(codes) { code in

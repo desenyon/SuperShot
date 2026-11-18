@@ -129,7 +129,7 @@ public struct EditorView: View {
     private var exportBar: some View {
         HStack(spacing: DS.xs) {
             HStack(spacing: DS.xs) {
-                Image(systemName: "hand.draw").font(.system(size: 12, weight: .medium))
+                Icon("hand.draw", size: 14)
                 Text("Drag").font(DS.caption)
             }
             .foregroundStyle(.secondary).padding(.horizontal, DS.sm).frame(height: DS.toolButton)
@@ -141,7 +141,7 @@ public struct EditorView: View {
             ShareButton(model: model).frame(width: DS.toolButton, height: DS.toolButton)
             IconButton("square.and.arrow.down.on.square", label: "Save editable project · ⇧⌘S") { model.saveProject() }
             divider
-            Button { model.export(copy: true) } label: { Label("Copy", systemImage: "doc.on.doc") }
+            Button { model.export(copy: true) } label: { Label { Text("Copy") } icon: { Icon("doc.on.doc", size: 16) } }
                 .buttonStyle(QuietButtonStyle()).disabled(model.busy).help("Copy image · ⌘C")
             HStack(spacing: 0) {
                 Button { model.export() } label: { Text("Save").font(DS.emphasis).padding(.leading, DS.lg).padding(.trailing, DS.sm).frame(height: DS.toolButton) }
@@ -160,7 +160,7 @@ public struct EditorView: View {
                 } label: {
                     HStack(spacing: 3) {
                         Text(ImageExport.formats.first { $0.id == model.format }?.name ?? "PNG").font(DS.mono)
-                        Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+                        Icon("chevron.down", weight: .bold, size: 10)
                     }.foregroundStyle(.white).padding(.leading, DS.sm).padding(.trailing, DS.md).frame(height: DS.toolButton).contentShape(Rectangle())
                 }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Format and resolution")
@@ -174,7 +174,7 @@ public struct EditorView: View {
     private var toast: some View {
         HStack(spacing: DS.sm) {
             if model.busy { ProgressView().controlSize(.small) }
-            else { Image(systemName: "checkmark.circle.fill").foregroundStyle(DS.success) }
+            else { Icon("checkmark.circle.fill").foregroundStyle(DS.success) }
             Text(model.status.isEmpty ? "Working…" : model.status).font(DS.caption).lineLimit(1)
         }
         .padding(.horizontal, DS.md).frame(height: 30).modifier(GlassSurface(radius: DS.pill))

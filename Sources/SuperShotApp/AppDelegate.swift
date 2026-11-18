@@ -57,6 +57,11 @@ import Carbon
             case .light: NSApp.appearance = NSAppearance(named: .aqua)
             }
         }
+        let theme = ThemeState.shared, look = preferences.customization
+        // Assigning an @Observable property invalidates its readers even when unchanged; guard so slider ticks stay free.
+        if theme.accent != look.accent { theme.accent = look.accent }
+        if theme.density != look.density { theme.density = look.density }
+        if theme.chrome != look.chrome { theme.chrome = look.chrome }
         if appliedDockIcon != preferences.showDockIcon {
             appliedDockIcon = preferences.showDockIcon
             NSApp.setActivationPolicy(preferences.showDockIcon ? .regular : .accessory)
@@ -101,7 +106,7 @@ import Carbon
                 }
                 if command.id == "area" {
                     let timed = NSMenuItem(title: "Capture Area After Delay", action: nil, keyEquivalent: "")
-                    timed.image = NSImage(systemSymbolName: "timer", accessibilityDescription: nil)
+                    timed.image = Icons.image("timer", size: 16)
                     let submenu = NSMenu()
                     for seconds in [3, 5, 10] {
                         let item = NSMenuItem(title: "\(seconds) seconds", action: #selector(timedCapture(_:)), keyEquivalent: "")
@@ -145,7 +150,7 @@ import Carbon
 
         if statusItem == nil {
             let status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-            status.button?.image = NSImage(systemSymbolName: "viewfinder", accessibilityDescription: "SuperShot")
+            status.button?.image = Icons.image("viewfinder", size: 16)
             status.button?.toolTip = "SuperShot"
             statusItem = status
         }
@@ -160,7 +165,7 @@ import Carbon
     @discardableResult private func add(_ title: String, action: Selector, key: String = "", symbol: String? = nil, to menu: NSMenu) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.target = self
-        if let symbol { item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
+        if let symbol { item.image = Icons.image(symbol, size: 16) }
         menu.addItem(item)
         return item
     }

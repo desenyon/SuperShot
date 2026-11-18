@@ -12,7 +12,7 @@ struct ShareButton:NSViewRepresentable {
     let model:EditorModel
     private var picker:NSSharingServicePicker?
     init(model:EditorModel){
-        self.model=model;super.init(frame:.zero);image=NSImage(systemSymbolName:"square.and.arrow.up",accessibilityDescription:"Share image");isBordered=false;target=self;action=#selector(share);toolTip="Share image"
+        self.model=model;super.init(frame:.zero);image=Icons.image("square.and.arrow.up", size: 16);isBordered=false;target=self;action=#selector(share);toolTip="Share image"
     }
     required init?(coder:NSCoder){fatalError()}
     @objc private func share(){

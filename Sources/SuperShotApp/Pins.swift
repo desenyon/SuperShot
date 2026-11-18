@@ -75,7 +75,7 @@ struct PinView: View {
                         ForEach([1.0, 0.75, 0.5, 0.25], id: \.self) { value in
                             Button("\(Int(value * 100))%") { state.opacity = value }
                         }
-                    } label: { Image(systemName: "circle.lefthalf.filled") }
+                    } label: { Icon("circle.lefthalf.filled") }
                         .menuStyle(.borderlessButton).frame(width: DS.toolButton).help("Pin opacity")
                         .accessibilityLabel("Pin opacity")
                     IconButton("lock", label: "Lock pin. Unlock from the SuperShot menu.", size: DS.toolButton) { state.window?.ignoresMouseEvents = true }
@@ -92,7 +92,7 @@ struct PinView: View {
                             }
                         }
                         Button("Close pin") { state.window?.close() }
-                    } label: { Image(systemName: "ellipsis") }
+                    } label: { Icon("ellipsis") }
                         .menuStyle(.borderlessButton).frame(width: DS.toolButton)
                         .padding(DS.xs).modifier(GlassSurface(radius: DS.controlRadius)).padding(DS.xs)
                         .accessibilityLabel("Pin actions")
@@ -100,7 +100,7 @@ struct PinView: View {
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            Image(systemName: "arrow.up.left.and.arrow.down.right").font(DS.caption)
+            Icon("arrow.up.left.and.arrow.down.right").font(DS.caption)
                 .padding(DS.xs).background(.regularMaterial, in: RoundedRectangle(cornerRadius: DS.xs))
                 .padding(DS.xs).allowsHitTesting(false)
         }

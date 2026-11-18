@@ -134,7 +134,7 @@ struct ToolOptionsBar: View {
                         if head == value { Label(title, systemImage: "checkmark") } else { Text(title) }
                     }
                 }
-            } label: { Image(systemName: "arrow.up.right").font(.system(size: 13, weight: .medium)).frame(width: 26, height: 26) }
+            } label: { Icon("arrow.up.right", size: 16).frame(width: 26, height: 26) }
                 .menuStyle(.borderlessButton).fixedSize().help("Arrowhead style")
             slider("Curve", model.selectedLayer?.arrowBend ?? model.style.arrowBend, -0.6...0.6, decimals: true) { value, live in
                 model.restyle(live: live, { $0.arrowBend = value }, layers: { $0.arrowBend = value })
@@ -168,7 +168,7 @@ struct ToolOptionsBar: View {
                 Button("Rotate 90°") { model.modifySelected { $0.rotation += 90 } }
                 Divider()
                 Button("Reset rotation") { model.modifySelected { $0.rotation = 0 } }
-            } label: { Image(systemName: "rotate.right").font(.system(size: 13, weight: .medium)).frame(width: 26, height: 26) }
+            } label: { Icon("rotate.right", size: 16).frame(width: 26, height: 26) }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Rotate")
             IconButton("square.3.layers.3d.top.filled", label: "Bring to front", size: 28) { model.reorderSelected(front: true) }
             IconButton("square.3.layers.3d.bottom.filled", label: "Send to back", size: 28) { model.reorderSelected(front: false) }
@@ -187,7 +187,7 @@ struct ToolOptionsBar: View {
     }
     private func hint(_ symbol: String?, _ text: String) -> some View {
         HStack(spacing: 6) {
-            if let symbol { Image(systemName: symbol).font(.system(size: 12, weight: .medium)) }
+            if let symbol { Icon(symbol, size: 14) }
             Text(text).font(DS.caption)
         }.foregroundStyle(.secondary)
     }

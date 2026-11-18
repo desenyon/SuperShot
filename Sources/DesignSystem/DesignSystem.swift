@@ -5,9 +5,28 @@ import AppKit
 public enum DS {
     // MARK: Color
 
-    /// The single accent. Used for selection and primary actions only.
-    public static let accent = Color(red: 0.36, green: 0.42, blue: 1.0)
-    public static let accentBright = Color(red: 0.55, green: 0.61, blue: 1.0)
+    /// The single accent, chosen in Settings → Appearance. Used for selection and primary actions only.
+    /// Reading it inside a SwiftUI body subscribes the view to accent changes.
+    @MainActor public static var accent: Color { Color(nsColor: nsAccent) }
+    /// The accent lifted for text and icons on dark surfaces.
+    @MainActor public static var accentBright: Color { Color(nsColor: accentPalette(ThemeState.shared.accent).bright) }
+    /// Text and icons drawn on top of an accent fill.
+    @MainActor public static var onAccent: Color { Color(nsColor: accentPalette(ThemeState.shared.accent).on) }
+    @MainActor public static var nsAccent: NSColor { accentPalette(ThemeState.shared.accent).base }
+    public static func accentPalette(_ choice: AccentChoice) -> (base: NSColor, bright: NSColor, on: NSColor) {
+        func hex(_ value: UInt32) -> NSColor {
+            NSColor(srgbRed: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255, blue: CGFloat(value & 0xFF) / 255, alpha: 1)
+        }
+        func dynamic(_ light: UInt32, _ dark: UInt32) -> NSColor {
+            NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .vibrantDark, .accessibilityHighContrastDarkAqua]) != nil ? hex(dark) : hex(light) }
+        }
+        switch choice {
+        case .blue: return (hex(0x2F7CF6), dynamic(0x1F6AE0, 0x6AA6FF), .white)
+        case .teal: return (hex(0x0FA697), dynamic(0x0B8A7D, 0x3FD3C3), .white)
+        case .graphite: return (dynamic(0x1C1D21, 0xF1F2F4), dynamic(0x1C1D21, 0xF1F2F4), dynamic(0xFFFFFF, 0x111214))
+        case .tangerine: return (hex(0xF26B0F), dynamic(0xD95C06, 0xFF9A52), .white)
+        }
+    }
     public static let ink = Color(red: 0.09, green: 0.10, blue: 0.13)
     public static let midnight = Color(red: 0.043, green: 0.047, blue: 0.058)
     public static let paper = Color(red: 0.93, green: 0.935, blue: 0.945)
@@ -19,7 +38,7 @@ public enum DS {
 
     public static func background(_ scheme: ColorScheme) -> Color { scheme == .dark ? midnight : paper }
     /// Text and icon color for selected and interactive elements.
-    public static func actionInk(_ scheme: ColorScheme) -> Color { scheme == .dark ? accentBright : accent }
+    @MainActor public static func actionInk(_ scheme: ColorScheme) -> Color { accentBright }
     /// Opaque stand-in for glass, used when Reduce Transparency is on or when rendering offscreen.
     public static func panel(_ scheme: ColorScheme) -> Color {
         scheme == .dark ? Color(red: 0.105, green: 0.11, blue: 0.13) : Color(red: 0.985, green: 0.985, blue: 0.99)
@@ -60,6 +79,8 @@ public enum DS {
     public static let pill: CGFloat = 100
     public static let stroke: CGFloat = 1
     public static let icon: CGFloat = 15
+    /// Phosphor glyphs sit lighter than SF Symbols at the same point size.
+    public static let iconSize: CGFloat = 18
 
     public static let mutedOpacity = 0.55
     public static let subtleOpacity = 0.08
@@ -120,7 +141,6 @@ public enum DS {
     public static let loupeSize: CGFloat = 132
     public static let loupePixels: CGFloat = 15
     public static let badgeHeight: CGFloat = 26
-    public static var nsAccent: NSColor { NSColor(srgbRed: 0.36, green: 0.42, blue: 1.0, alpha: 1) }
     @MainActor public static let overlayFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
     @MainActor public static let hintFont = NSFont.systemFont(ofSize: 12, weight: .medium)
     @MainActor public static var canvasChecker: NSColor { .labelColor.withAlphaComponent(0.05) }
@@ -138,7 +158,7 @@ public extension DS {
         NSColor(srgbRed: 1.00, green: 0.82, blue: 0.16, alpha: 1),
         NSColor(srgbRed: 0.20, green: 0.80, blue: 0.47, alpha: 1),
         NSColor(srgbRed: 0.18, green: 0.56, blue: 1.00, alpha: 1),
-        NSColor(srgbRed: 0.64, green: 0.40, blue: 1.00, alpha: 1),
+        NSColor(srgbRed: 0.07, green: 0.78, blue: 0.80, alpha: 1),
         NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1),
         NSColor(srgbRed: 0.07, green: 0.07, blue: 0.08, alpha: 1)
     ]
@@ -152,15 +172,15 @@ public extension DS {
     }
 
     static let gradients: [GradientPreset] = [
-        GradientPreset(id: "iris", name: "Iris", hex: [0x6A5BFF, 0xB06CFF, 0xFF8FB8], angle: 45),
+        GradientPreset(id: "lagoon", name: "Lagoon", hex: [0x1F6AE0, 0x22B8C9, 0x9AF2E0], angle: 45),
         GradientPreset(id: "sunset", name: "Sunset", hex: [0xFF5F6D, 0xFF9966, 0xFFC371], angle: 45),
         GradientPreset(id: "ocean", name: "Ocean", hex: [0x1E3CFF, 0x2D9CFF, 0x5CE1E6], angle: 45),
         GradientPreset(id: "mint", name: "Mint", hex: [0x0BA360, 0x3CBA92, 0xB5F0D0], angle: 45),
-        GradientPreset(id: "candy", name: "Candy", hex: [0xFF9A9E, 0xFAD0C4, 0xFBC2EB], angle: 45),
+        GradientPreset(id: "peach", name: "Peach", hex: [0xFF9A8B, 0xFAD0C4, 0xFFE8C7], angle: 45),
         GradientPreset(id: "sky", name: "Sky", hex: [0x4D8DFF, 0x9CC9FF, 0xE8F4FF], angle: 90),
-        GradientPreset(id: "ember", name: "Ember", hex: [0x2B0A3D, 0xB3123F, 0xFF7A3D], angle: 45),
+        GradientPreset(id: "ember", name: "Ember", hex: [0x2A0E0A, 0xB3261E, 0xFF8A3D], angle: 45),
         GradientPreset(id: "aurora", name: "Aurora", hex: [0x0F2027, 0x1F6F78, 0x7FFFD4], angle: 60),
-        GradientPreset(id: "grape", name: "Grape", hex: [0x41106B, 0x7F3FBF, 0xC59BFF], angle: 45),
+        GradientPreset(id: "forest", name: "Forest", hex: [0x0B3D2E, 0x1F7A5A, 0x9BE3B8], angle: 45),
         GradientPreset(id: "sand", name: "Sand", hex: [0xF6EFE3, 0xE6D5BD, 0xCDB592], angle: 45),
         GradientPreset(id: "graphite", name: "Graphite", hex: [0x2A2C31, 0x16171A], angle: 90),
         GradientPreset(id: "cloud", name: "Cloud", hex: [0xFFFFFF, 0xE9ECF2], angle: 90)
@@ -168,7 +188,7 @@ public extension DS {
 
     static let solidHex: [UInt32] = [
         0xFFFFFF, 0xF1F2F4, 0x1C1D21, 0x000000, 0xFF5A5F, 0xFF9F1C,
-        0xFFD23F, 0x3DDC97, 0x2EC4B6, 0x3A86FF, 0x7B5CFF, 0xFF6FB5
+        0xFFD23F, 0x3DDC97, 0x2EC4B6, 0x2F7CF6, 0x5B6B7F, 0xFF8A65
     ]
 
     static func color(_ hex: UInt32) -> Color {
@@ -243,8 +263,10 @@ public struct PrimaryButtonStyle: ButtonStyle {
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(DS.emphasis)
             .padding(.horizontal, DS.lg).frame(height: DS.toolButton)
-            .foregroundStyle(.white)
-            .background(DS.accent.opacity(configuration.isPressed ? 0.78 : 1), in: Capsule())
+            .foregroundStyle(DS.onAccent)
+            .background(DS.accent.opacity(configuration.isPressed ? 0.82 : 1), in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(0.14), lineWidth: 1).blendMode(.plusLighter))
+            .shadow(color: DS.accent.opacity(0.28), radius: 6, y: 2)
             .opacity(enabled ? 1 : 0.45)
             .contentShape(Capsule())
     }
@@ -278,9 +300,8 @@ public struct IconButton: View {
     }
     public var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: DS.icon, weight: .medium))
-                .foregroundStyle(selected ? Color.white : Color.primary.opacity(enabled ? 0.86 : 0.3))
+            Icon(symbol, weight: selected ? .fill : .regular, size: DS.iconSize)
+                .foregroundStyle(selected ? DS.onAccent : Color.primary.opacity(enabled ? (hovering ? 1 : 0.8) : 0.3))
                 .frame(width: size, height: size)
                 .background(selected ? DS.accent : (hovering && enabled ? DS.hover(scheme) : .clear),
                             in: RoundedRectangle(cornerRadius: DS.controlRadius, style: .continuous))
@@ -309,7 +330,7 @@ public struct SegmentedChoice<Value: Hashable>: View {
             ForEach(options, id: \.value) { option in
                 Button { withAnimation(DS.spring(reduceMotion: reduceMotion)) { select(option.value) } } label: {
                     HStack(spacing: DS.xs) {
-                        if let symbol = option.symbol { Image(systemName: symbol).font(.system(size: 11, weight: .semibold)) }
+                        if let symbol = option.symbol { Icon(symbol, weight: .bold, size: 12) }
                         Text(option.title).font(DS.caption)
                     }
                     .foregroundStyle(selection == option.value ? Color.primary : Color.secondary)
@@ -431,10 +452,11 @@ public struct BrandMark: View {
     public init(size: CGFloat = 44) { self.size = size }
     public var body: some View {
         RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
-            .fill(LinearGradient(colors: [DS.color(0x7C6BFF), DS.color(0x3D55F5)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .fill(LinearGradient(colors: [DS.color(0x2A2D34), DS.color(0x0E0F12)], startPoint: .topLeading, endPoint: .bottomTrailing))
             .frame(width: size, height: size)
-            .overlay(Image(systemName: "viewfinder").font(.system(size: size * 0.5, weight: .semibold)).foregroundStyle(.white))
-            .shadow(color: DS.accent.opacity(0.4), radius: size * 0.22, y: size * 0.1)
+            .overlay(RoundedRectangle(cornerRadius: size * 0.27, style: .continuous).strokeBorder(.white.opacity(0.12), lineWidth: 1))
+            .overlay(Icon("frame-corners", weight: .bold, size: size * 0.56).foregroundStyle(DS.color(0xA9C7FF)))
+            .shadow(color: .black.opacity(0.35), radius: size * 0.2, y: size * 0.08)
             .accessibilityHidden(true)
     }
 }
