@@ -2,7 +2,7 @@
 
 SuperShot is a native macOS screenshot app whose first requirement is that it is beautiful. It captures (screen, window, area, scrolling), recognizes (text, QR), beautifies (backgrounds, shadows, padding), and edits (a full annotation editor with AI tools). Everything runs locally and fast.
 
-This file is the product specification and the rules for agents working here. The native implementation now lives in `Sources/`, with eleven library test targets in `Tests/` and a signed local app in `dist/SuperShot.app`. See `README.md` for usage and `docs/verification/2026-11-16.md` for the implementation, audit, and verification boundaries. The UI was redesigned after that report; its screenshots show the old interface, and `docs/previews/` shows the current one. Features below remain the target specification; their presence here is not a claim that every acceptance gate has passed.
+This file is the product specification and the rules for agents working here. The native implementation now lives in `Sources/`, with eleven library test targets in `Tests/` and a signed local app in `dist/SuperShot.app`. See `README.md` for usage, `CHANGELOG.md` for release history, `docs/verification/2026-11-16.md` for the original implementation and audit, and `docs/verification/2026-11-18-0.1.0.md` for the 0.1.0 checks. `docs/previews/` shows the current interface. Features below remain the target specification; their presence here is not a claim that every acceptance gate has passed.
 
 ## Product principles
 
@@ -168,7 +168,8 @@ What "better" means here:
 - **Motion everywhere, with one physical feel.** Every animation comes from `DS.Motion` (`Sources/DesignSystem/Motion.swift`): `snappy` (selection tiles, tool switch, toggles), `panel` (panels, popovers, page changes), `arrive` (thumbnails, chat messages, the area action bar, toasts), `gentle` (crossfades, backdrop and value changes), `hover`; transitions `reveal(from:)`, `pop`, `rise`; `stagger` for lists and grids; `PressableStyle`, `.hoverLift()`, `.staggeredAppear(_:)`; `present`/`dismiss`/`caSpring` for AppKit windows and layers. Springs are interruptible and retarget mid-flight. Selection indicators slide between items with `matchedGeometryEffect` rather than jumping. Nothing that appears or disappears just pops in. Under Reduce Motion, movement becomes short crossfades. No literal animation curves in feature code.
 - **Progressive disclosure.** Tool options appear near the selection as a small contextual bar. Panels the user is not using stay hidden.
 - **The capture overlay is part of the design.** Crosshair, dimension badge, loupe, and selection handles get the same care as the editor.
-- Settings and setup use compact neutral grouped surfaces, plain SF Symbols, restrained selection accents, and no decorative gradients or glow. The 2026-11-16 panel reference supplies density and hierarchy, not copied assets.
+- Settings and setup use compact neutral grouped surfaces, Phosphor icons on neutral tiles, restrained selection accents, and no decorative gradients or glow. The 2026-11-16 panel reference supplies density and hierarchy, not copied assets.
+- **The logo** is defined once in `DesignSystem/Brand.swift`: a white rounded viewfinder on a Clear-blue tile. The app icon (`--render-app-icon`, used by `scripts/bundle.sh`), the menu bar template, `BrandIcon`, and `BrandMark` all draw from it. Never draw the logo anywhere else.
 - Dark and light appearance both designed, not derived. Full keyboard access and VoiceOver labels on every control.
 
 Every UI change must be checked by running the app and looking at it, in both appearances. Screenshots of new surfaces go in the PR. Use an isolated macOS desktop or a user-authorized interactive session for these checks; otherwise record visual verification as pending.
@@ -227,6 +228,10 @@ Rules:
 9. **Polish**: settings completeness, hotkey profiles, launch at login, Shortcuts, performance pass.
 
 Finish and polish each milestone before starting the next. A milestone is done when it works, looks finished in both appearances, and has tests.
+
+## Releases
+
+- Bump `CFBundleShortVersionString` and `CFBundleVersion` in `Resources/Info.plist`, add a `CHANGELOG.md` entry, write a verification report in `docs/verification/`, run `scripts/test-background.sh`, `scripts/preview.sh`, and the `PREVIEW_BENCH` comparison, then `scripts/bundle.sh`. Release archives are `SuperShot-<version>-macOS-arm64.zip` (made with `ditto -c -k --keepParent`) plus `SHA256SUMS.txt`, attached to a GitHub release whose notes list every change from the changelog.
 
 ## Working rules for agents
 

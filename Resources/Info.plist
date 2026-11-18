@@ -2,43 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleName</key>
-	<string>SuperShot</string>
 	<key>CFBundleDisplayName</key>
 	<string>SuperShot</string>
-	<key>CFBundleIdentifier</key>
-	<string>dev.desenyon.SuperShot</string>
-	<key>CFBundleExecutable</key>
-	<string>SuperShot</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleVersion</key>
-	<string>6</string>
-	<key>CFBundleShortVersionString</key>
-	<string>0.0.1</string>
-	<key>LSMinimumSystemVersion</key>
-	<string>26.0</string>
-	<key>LSUIElement</key>
-	<true/>
-	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
-	<key>NSHighResolutionCapable</key>
-	<true/>
-	<key>CFBundleIconFile</key>
-	<string>AppIcon</string>
-	<key>NSScreenCaptureUsageDescription</key>
-	<string>SuperShot needs screen access to capture the screen, window, or area you choose. Your images stay on your Mac.</string>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>dev.desenyon.SuperShot</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>supershot</string>
-			</array>
-		</dict>
-	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -66,17 +31,52 @@
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleExecutable</key>
+	<string>SuperShot</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>dev.desenyon.SuperShot</string>
+	<key>CFBundleName</key>
+	<string>SuperShot</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>dev.desenyon.SuperShot</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>supershot</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleVersion</key>
+	<string>7</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>26.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>SuperShot needs screen access to capture the screen, window, or area you choose. Your images stay on your Mac.</string>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>dev.desenyon.supershot.project</string>
-			<key>UTTypeDescription</key>
-			<string>SuperShot editable project</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.json</string>
 			</array>
+			<key>UTTypeDescription</key>
+			<string>SuperShot editable project</string>
+			<key>UTTypeIdentifier</key>
+			<string>dev.desenyon.supershot.project</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>

@@ -1,16 +1,36 @@
 # SuperShot
 
-A native macOS screenshot editor with floating Liquid Glass controls, editable annotations, backdrops, local OCR, and a searchable capture library. Requires macOS 26 or newer. Built with Swift 6 and Apple frameworks; no third-party dependencies or application network calls.
+A native macOS screenshot editor with floating Liquid Glass controls, editable annotations, backdrops, local OCR, a searchable capture library, and **Ask**: chat about any capture with your own ChatGPT or Claude plan. Requires macOS 26 or newer. Built with Swift 6 and Apple frameworks, with no third-party code dependencies. Interface icons are Phosphor (MIT, embedded as SVG; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). SuperShot itself makes no network calls; Ask hands questions to the Codex or Claude Code CLI on your Mac, only when you send one.
 
 ![SuperShot editor in dark appearance](docs/previews/editor-dark.png)
 
 Images in `docs/previews/` are rendered offscreen by `scripts/preview.sh`. Floating surfaces use Liquid Glass in the running app and appear opaque in these renders.
 
-## Release 0.0.1
+## Release 0.1.0
 
-The first GitHub release refreshes all seven Settings pages with a compact graphite palette, native sidebar vibrancy, grouped material rows, aligned controls, and accessible opaque fallbacks. Existing preferences and shortcuts are preserved. The release uses version **0.0.1**, build **6**, following earlier local development builds.
+Ask about any capture, a new logo and icon set, a purple-free palette with a choice of accent, much more customization, motion across the app, and modernized Settings, editor, pins, and Library. Version **0.1.0**, build **7**. See [CHANGELOG.md](CHANGELOG.md) for the full list and the [0.1.0 verification report](docs/verification/2026-11-18-0.1.0.md) for checks and remaining live verification.
 
-See the [Settings redesign verification](docs/verification/2026-11-16-settings-0.0.1.md) for screenshots, regression coverage, and remaining live checks.
+![Ask in the editor](docs/previews/editor-ask-dark.png)
+
+### Ask
+
+Ask a question about a capture and get an answer next to it:
+
+- **Editor:** the Ask tab in the right panel. Attach a region with the dashed-square button, stop a reply with Stop, and use Copy, Add as text, or Show on image on any answer.
+- **Right after a capture:** choose **Ask** on the area-selection bar, or the Ask button on the quick-access thumbnail. A chat panel opens beside the thumbnail; Open in editor carries the conversation over.
+
+Ask uses a subscription you already have through a command-line tool on this Mac. SuperShot never sees a password, token, or API key; each tool owns its own sign-in.
+
+| Provider | Tool | Sign in |
+|---|---|---|
+| ChatGPT (default) | [Codex CLI](https://github.com/openai/codex) `codex app-server` | Settings → Assistant → Sign in with ChatGPT opens your browser |
+| Claude | [Claude Code](https://claude.com/claude-code) `claude -p` | Settings → Assistant → Sign in opens Terminal with `claude auth login` |
+
+Before the first upload in a conversation, Ask says which company receives the image (OpenAI or Anthropic). You can include on-device recognized text, blur sensitive details first with Smart redact, and keep conversations with captures in History. Conversations run read-only: the tools are started with commands, file edits, plugins, and MCP servers disabled. Set the provider to **Off** to hide Ask everywhere.
+
+### Customize
+
+Settings → Appearance: System, Light, or Dark; accent (blue, teal, graphite, or tangerine); compact or regular density; glass or solid floating chrome; and the order and visibility of editor tools, area-selection buttons (with or without labels), and thumbnail buttons.
 
 ## Run locally
 
@@ -46,7 +66,10 @@ All capture actions are available from the menu. Settings → Shortcuts records 
 - Settings → Pins & previews controls thumbnail corner, width, auto-dismiss interval, and new-pin size, opacity, shadow, and Space visibility. The thumbnail dismissal timer pauses under the pointer.
 - Searchable settings navigation, native sharing, image drag/drop, retention settings, shortcut profiles, and URL automation.
 
-Original pixels remain in editable projects and history. Share a flattened exported image when redacting content. There are no cloud uploads or cloud AI providers in this build.
+- Ask about a capture through ChatGPT (Codex) or Claude (Claude Code), with region attachments, streaming replies, consent before upload, optional redaction, and conversations kept with captures in History.
+- Settings → Appearance for accent, density, chrome, and toolbar contents; one motion system for panels, tools, thumbnails, messages, and windows that reduces to crossfades under Reduce Motion.
+
+Original pixels remain in editable projects and history. Share a flattened exported image when redacting content. Nothing is uploaded unless you send an Ask question; then the image goes to the provider you chose.
 
 ## Automation
 
@@ -77,6 +100,6 @@ The background command uses lower CPU priority and two build jobs, and excludes 
 
 The test wrapper handles this machine's Swift Testing plugin discovery. Benchmarks use a synthetic 5120×2880 image with 200 vector annotations; they do not establish full interactive-canvas or effect-heavy frame rates.
 
-See the [quick capture update](docs/verification/2026-11-16-quick-capture.md) for auto-copy, release-to-capture, and the latest regression checks. See the [settings and pins update](docs/verification/2026-11-16-settings-pins.md) for the latest checks. See the [verification report](docs/verification/2026-11-16.md) for test results, measured timings, audit fixes, UI screenshots, and unverified flows. The broader product specification in [AGENTS.md](AGENTS.md) is still the roadmap. This build does not include downloadable generative models, cloud AI, horizontal stitching, video/GIF recording, or cloud share links.
+See the [0.1.0 verification report](docs/verification/2026-11-18-0.1.0.md) for this release. See the [quick capture update](docs/verification/2026-11-16-quick-capture.md) for auto-copy, release-to-capture, and the latest regression checks. See the [settings and pins update](docs/verification/2026-11-16-settings-pins.md) for the latest checks. See the [verification report](docs/verification/2026-11-16.md) for test results, measured timings, audit fixes, UI screenshots, and unverified flows. The broader product specification in [AGENTS.md](AGENTS.md) is still the roadmap. This build does not include downloadable generative models, API-key cloud providers, horizontal stitching, video/GIF recording, or cloud share links.
 
 Data is stored locally under `~/Library/Application Support/SuperShot`. Preferences use the `dev.desenyon.SuperShot` defaults domain. Imported originals and project layers are preserved; history retention is configurable.

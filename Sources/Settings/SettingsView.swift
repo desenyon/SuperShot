@@ -179,7 +179,7 @@ public struct SettingsView: View {
                     Icon(hasScreenAccess ? "shield-check" : "shield-warning", size: DS.iconSize)
                     VStack(alignment: .leading, spacing: DS.xs) {
                         Text(hasScreenAccess ? "Screen access on" : "Screen access off").font(S.detail)
-                        Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.1")")
+                        Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0")")
                             .font(S.mono).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 0)
