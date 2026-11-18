@@ -109,3 +109,17 @@ public enum Brand {
         CGColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
     }
 }
+
+/// The app icon as a SwiftUI view: the same drawing as the Dock and Finder icon.
+public struct BrandIcon: View {
+    private let size: CGFloat
+    public init(size: CGFloat = 44) { self.size = size }
+    public var body: some View {
+        // The icon art includes macOS's transparent margin; scale it so the tile fills `size`.
+        Image(nsImage: Brand.iconImage(size: size * 1024 / 824))
+            .resizable().interpolation(.high)
+            .frame(width: size * 1024 / 824, height: size * 1024 / 824)
+            .frame(width: size, height: size)
+            .accessibilityLabel("SuperShot")
+    }
+}

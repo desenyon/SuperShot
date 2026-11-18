@@ -19,7 +19,7 @@ struct WelcomeView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.lg) {
             HStack(spacing: DS.md) {
-                BrandMark(size: DS.xxl).padding(DS.lg).grayscale(1).drawingGroup().padding(-DS.lg)
+                BrandIcon(size: DS.xxl)
                 Text("SuperShot").font(DS.emphasis)
             }.staggeredAppear(0)
             VStack(alignment: .leading, spacing: DS.sm) {

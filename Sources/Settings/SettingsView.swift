@@ -142,7 +142,7 @@ public struct SettingsView: View {
         VStack(alignment: .leading, spacing: DS.xs / 2) {
             if !short {
                 HStack(spacing: DS.sm) {
-                    Icon("frame-corners", weight: .bold, size: DS.iconSize)
+                    BrandIcon(size: 20)
                     Text("SuperShot").font(DS.emphasis)
                 }.padding(.horizontal, DS.sm).padding(.bottom, DS.md)
             }
