@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import Hotkeys
 import Document
+import DesignSystem
 
 public enum AppAppearance: String, Codable, CaseIterable, Sendable {
     case system, light, dark
@@ -43,8 +44,73 @@ public struct FloatingPreferences: Codable, Equatable, Sendable {
     }
 }
 
+/// Ask: chat about a capture through a subscription CLI. See `AI/Assistant`.
+public struct AssistantPreferences: Codable, Equatable, Sendable {
+    /// "chatgpt" (default), "claude", or "off". Raw values of `AssistantProvider` plus "off".
+    public var provider: String = "chatgpt"
+    /// nil uses the tool's own default model.
+    public var model: String?
+    public var confirmBeforeSending = true
+    public var includeRecognizedText = true
+    public var redactBeforeSending = false
+    public var keepConversations = true
+    /// Suggestion chips shown under a new conversation, editable in Settings.
+    public var suggestions: [String] = AssistantPreferences.defaultSuggestions
+    public static let defaultSuggestions = ["Explain this", "Summarize", "What should I do next?", "Write alt text"]
+    public init() {}
+    public init(from decoder: Decoder) throws {
+        self.init()
+        let v = try decoder.container(keyedBy: CodingKeys.self)
+        provider = try v.decodeIfPresent(String.self, forKey: .provider) ?? "chatgpt"
+        model = try v.decodeIfPresent(String.self, forKey: .model)
+        confirmBeforeSending = try v.decodeIfPresent(Bool.self, forKey: .confirmBeforeSending) ?? true
+        includeRecognizedText = try v.decodeIfPresent(Bool.self, forKey: .includeRecognizedText) ?? true
+        redactBeforeSending = try v.decodeIfPresent(Bool.self, forKey: .redactBeforeSending) ?? false
+        keepConversations = try v.decodeIfPresent(Bool.self, forKey: .keepConversations) ?? true
+        suggestions = try v.decodeIfPresent([String].self, forKey: .suggestions) ?? Self.defaultSuggestions
+        if !["chatgpt", "claude", "off"].contains(provider) { provider = "chatgpt" }
+    }
+    public var isEnabled: Bool { provider != "off" }
+}
+
+/// Interface choices beyond light and dark. Every field decodes optionally.
+public struct CustomizationPreferences: Codable, Equatable, Sendable {
+    public var accent: DS.AccentChoice = .blue
+    public var density: DS.Density = .regular
+    /// Floating chrome: system glass, or a solid tinted surface.
+    public var chrome: DS.Chrome = .glass
+    /// Editor tool palette, in order: "select", "crop", then `LayerKind` raw values. Missing ids are hidden.
+    public var editorTools: [String] = CustomizationPreferences.defaultEditorTools
+    /// Buttons on the area-selection action bar, in order.
+    public var overlayActions: [String] = CustomizationPreferences.defaultOverlayActions
+    /// Hover buttons on the quick-access thumbnail, in order.
+    public var thumbnailActions: [String] = CustomizationPreferences.defaultThumbnailActions
+    /// Show text labels under the area-selection action bar buttons.
+    public var overlayLabels = true
+    public static let defaultEditorTools = ["select", "crop", "arrow", "rectangle", "oval", "line", "text", "counter", "drawing", "highlighter", "blur", "pixelate", "erase", "spotlight", "magnifier", "ruler", "picker", "image"]
+    public static let allOverlayActions = ["capture", "copy", "save", "edit", "pin", "text", "ask"]
+    public static let defaultOverlayActions = ["capture", "copy", "save", "edit", "pin", "text", "ask"]
+    public static let allThumbnailActions = ["copy", "save", "pin", "ask", "edit", "delete"]
+    public static let defaultThumbnailActions = ["copy", "save", "pin", "ask", "delete"]
+    public init() {}
+    public init(from decoder: Decoder) throws {
+        self.init()
+        let v = try decoder.container(keyedBy: CodingKeys.self)
+        accent = try v.decodeIfPresent(DS.AccentChoice.self, forKey: .accent) ?? .blue
+        density = try v.decodeIfPresent(DS.Density.self, forKey: .density) ?? .regular
+        chrome = try v.decodeIfPresent(DS.Chrome.self, forKey: .chrome) ?? .glass
+        editorTools = try v.decodeIfPresent([String].self, forKey: .editorTools) ?? Self.defaultEditorTools
+        overlayActions = (try v.decodeIfPresent([String].self, forKey: .overlayActions) ?? Self.defaultOverlayActions).filter(Self.allOverlayActions.contains)
+        thumbnailActions = (try v.decodeIfPresent([String].self, forKey: .thumbnailActions) ?? Self.defaultThumbnailActions).filter(Self.allThumbnailActions.contains)
+        overlayLabels = try v.decodeIfPresent(Bool.self, forKey: .overlayLabels) ?? true
+        if !overlayActions.contains("capture") { overlayActions.insert("capture", at: 0) }
+    }
+}
+
 public struct Preferences: Codable, Equatable, Sendable {
     public var appearance: AppAppearance = .system
+    public var assistant = AssistantPreferences()
+    public var customization = CustomizationPreferences()
     public var showDockIcon = false
     public var onboardingCompleted = false
     public var floating = FloatingPreferences()
@@ -76,7 +142,7 @@ public struct Preferences: Codable, Equatable, Sendable {
     public var saveFolder = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first!.appendingPathComponent("SuperShot").path
     public init() {}
     private enum CodingKeys: String, CodingKey {
-        case floating
+        case floating, assistant, customization
         case autoCopyScreenshots, captureOnRelease
         case appearance, showDockIcon, onboardingCompleted, afterCapture, areaAction, includeCursor, saveFolder, shortcuts, historyEnabled, retentionDays, fileFormat, clipboardFormat, quality, oneX, convertToSRGB, filenameTemplate, filenameCounter, subfolders, saveSidecar, captureSound, hideDesktopIcons, keepWindowShadow, automaticBackdrop, defaultBackdrop, backdropPresets, modeActions, toolShortcuts
     }
@@ -87,6 +153,8 @@ public struct Preferences: Codable, Equatable, Sendable {
         showDockIcon = try values.decodeIfPresent(Bool.self, forKey: .showDockIcon) ?? false
         onboardingCompleted = try values.decodeIfPresent(Bool.self, forKey: .onboardingCompleted) ?? false
         floating = try values.decodeIfPresent(FloatingPreferences.self, forKey: .floating) ?? FloatingPreferences()
+        assistant = try values.decodeIfPresent(AssistantPreferences.self, forKey: .assistant) ?? AssistantPreferences()
+        customization = try values.decodeIfPresent(CustomizationPreferences.self, forKey: .customization) ?? CustomizationPreferences()
         afterCapture = try values.decodeIfPresent(Set<AfterCapture>.self, forKey: .afterCapture) ?? [.thumbnail]
         autoCopyScreenshots = try values.decodeIfPresent(Bool.self, forKey: .autoCopyScreenshots) ?? false
         captureOnRelease = try values.decodeIfPresent(Bool.self, forKey: .captureOnRelease) ?? false
