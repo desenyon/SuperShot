@@ -38,7 +38,7 @@ public enum Icons {
         "arrow.up.and.down.text.horizontal": "scroll", "arrow.counterclockwise": "arrow-counter-clockwise",
         "a.square": "translate", "1.circle": "number-circle-one", "timer": "timer", "crop": "crop",
         "keyboard": "keyboard", "command": "command", "display": "monitor", "folder": "folder", "power": "power",
-        "eyedropper": "eyedropper", "photo.badge.arrow.down": "file-image", "sparkles": "sparkle", "wand.and.stars": "magic-wand",
+        "eyedropper": "eyedropper", "photo.badge.arrow.down": "file-image", "sparkles": "magic-wand", "wand.and.stars": "magic-wand",
         "tablecells": "table", "tag": "tag", "clock": "clock", "hand.raised": "hand", "paintpalette": "palette",
         "slider.horizontal.3": "sliders-horizontal", "arrow.up": "arrow-up", "stop.fill": "stop",
         "bubble.left.and.text.bubble.right": "chats-circle", "scope": "crosshair-simple", "bounding.box": "bounding-box"
