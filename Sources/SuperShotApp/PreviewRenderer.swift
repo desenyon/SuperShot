@@ -5,6 +5,7 @@ import Document
 import Render
 import Editor
 import Settings
+import AI
 import Capture
 import Library
 import Export
@@ -89,7 +90,7 @@ extension PreviewRenderer {
         var list: [Scene] = []
         let suite = "SuperShot.preview.\(UUID().uuidString)"
         let store = SettingsStore(defaults: UserDefaults(suiteName: suite)!)
-        for section in SettingsView.Section.allCases {
+        for section in SettingsView.Section.allCases where section != .assistant {
             let name = section == .floating ? "floating" : section.rawValue.lowercased()
             list.append(Scene(name: "settings-\(name)", size: DS.settingsSize,
                               view: AnyView(SettingsView(store: store, hasScreenAccess: true, initialSection: section, openPrivacy: {}))))
@@ -99,6 +100,32 @@ extension PreviewRenderer {
                               view: AnyView(SettingsView(store: store, hasScreenAccess: true, initialSection: section, openPrivacy: {})
                                 .settingsAccessibilityPreview())))
         }
+        // MARK: Appearance and Assistant fixtures (never contact the installed CLI services).
+        let signedIn = AssistantAvailability.ready(AssistantAccount(email: "you@example.com", plan: "Plus",
+            toolVersion: "0.169.0", toolPath: "/preview/codex"))
+        let signedOut = AssistantAvailability.signedOut(toolVersion: "0.169.0", toolPath: "/preview/codex")
+        func assistantScene(_ name: String, _ size: CGSize, _ state: AssistantAvailability, accessible: Bool = false) -> Scene {
+            let view = SettingsView(store: store, hasScreenAccess: true, initialSection: .assistant, assistantService: { provider in
+                let claude: AssistantAvailability = state == .notInstalled ? .notInstalled :
+                    .signedOut(toolVersion: "2.1.325", toolPath: "/preview/claude")
+                return PreviewAssistantService(provider: provider, state: provider == .chatgpt ? state : claude,
+                    usage: AssistantUsage(usedFraction: 0.18, resetsAt: Date(timeIntervalSince1970: 1_795_456_800)))
+            }, openPrivacy: {})
+            return Scene(name: name, size: size, view: accessible ? AnyView(view.settingsAccessibilityPreview()) : AnyView(view))
+        }
+        list.append(assistantScene("settings-assistant", DS.settingsSize, signedIn))
+        list.append(assistantScene("settings-assistant-signedout", DS.settingsSize, signedOut))
+        list.append(assistantScene("settings-assistant-notinstalled", DS.settingsSize, .notInstalled))
+        list.append(assistantScene("settings-narrow-assistant", CGSize(width: 680, height: 1600), signedIn))
+        list.append(assistantScene("settings-accessible-assistant", DS.settingsSize, signedIn, accessible: true))
+        let toolbarStore = SettingsStore(defaults: UserDefaults(suiteName: suite + ".toolbars")!)
+        toolbarStore.preferences.customization.density = .compact
+        toolbarStore.preferences.customization.overlayActions = ["capture", "ask", "copy", "text"]
+        list.append(Scene(name: "settings-appearance-toolbars", size: CGSize(width: 680, height: 1100),
+                          view: AnyView(SettingsView(store: toolbarStore, hasScreenAccess: true, initialSection: .appearance,
+                                                     openPrivacy: {}).settingsToolbarEditingPreview())))
+        // MARK: End settings fixtures
+
         for section in [SettingsView.Section.capture, .output, .shortcuts, .floating] {
             list.append(Scene(name: "settings-full-\(section == .floating ? "floating" : section.rawValue.lowercased())", size: CGSize(width: DS.settingsSize.width, height: 1600),
                               view: AnyView(SettingsView(store: store, hasScreenAccess: true, initialSection: section, openPrivacy: {}))))

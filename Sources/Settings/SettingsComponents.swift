@@ -5,13 +5,36 @@ import DesignSystem
 private typealias S = DS.Preferences
 
 private struct SettingsAccessibilityPreviewKey: EnvironmentKey { static let defaultValue = false }
+private struct SettingsCompactKey: EnvironmentKey { static let defaultValue = false }
+private struct SettingsEditingPreviewKey: EnvironmentKey { static let defaultValue = false }
+private struct SettingsFirstVisitKey: EnvironmentKey { static let defaultValue = true }
 extension EnvironmentValues {
+    var settingsEditingPreview: Bool {
+        get { self[SettingsEditingPreviewKey.self] }
+        set { self[SettingsEditingPreviewKey.self] = newValue }
+    }
+    var settingsCompact: Bool {
+        get { self[SettingsCompactKey.self] }
+        set { self[SettingsCompactKey.self] = newValue }
+    }
+    var settingsFirstVisit: Bool {
+        get { self[SettingsFirstVisitKey.self] }
+        set { self[SettingsFirstVisitKey.self] = newValue }
+    }
     var settingsAccessibilityPreview: Bool {
         get { self[SettingsAccessibilityPreviewKey.self] }
         set { self[SettingsAccessibilityPreviewKey.self] = newValue }
     }
 }
 public extension View {
+    /// Setup shares Settings controls, with one accent action for completing the current step.
+    func setupButton(primary: Bool = false) -> some View {
+        buttonStyle(SettingsButtonStyle(kind: primary ? .setupPrimary : .standard))
+    }
+
+    /// Opens the area toolbar editor for offscreen layout inspection.
+    func settingsToolbarEditingPreview() -> some View { environment(\.settingsEditingPreview, true) }
+
     /// Exercises accessibility fallbacks without changing the user's macOS preferences.
     func settingsAccessibilityPreview() -> some View { environment(\.settingsAccessibilityPreview, true) }
 }
@@ -50,24 +73,31 @@ private struct SidebarMaterial: NSViewRepresentable {
 
 struct SettingsGroup<Content: View>: View {
     let title: String?
+    var index = 0
     var footer: String?
     @ViewBuilder var content: () -> Content
     @Environment(\.colorScheme) private var scheme
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.settingsAccessibilityPreview) private var accessibilityPreview
-    var body: some View {
+    @Environment(\.settingsFirstVisit) private var firstVisit
+    @ViewBuilder var body: some View {
+        if firstVisit && !DS.rendersOffscreen { card.staggeredAppear(index) } else { card }
+    }
+    private var card: some View {
         VStack(alignment: .leading, spacing: DS.sm) {
             if let title {
-                Text(title).font(S.section).foregroundStyle(.secondary)
+                Text(title.uppercased()).font(S.section).tracking(0.5).foregroundStyle(.secondary)
                     .padding(.leading, DS.xs).accessibilityAddTraits(.isHeader)
             }
             VStack(alignment: .leading, spacing: 0, content: content)
                 .padding(S.groupInset).frame(maxWidth: .infinity, alignment: .leading)
                 .background(SettingsSurface(role: .group))
                 .clipShape(RoundedRectangle(cornerRadius: S.radius))
+                .shadow(color: S.cardShadow(scheme), radius: DS.xs / 2, y: DS.stroke)
                 .overlay(RoundedRectangle(cornerRadius: S.radius).strokeBorder(contrast == .increased || accessibilityPreview ? S.accent(scheme) : S.edge(scheme), lineWidth: S.hairline))
             if let footer {
                 Text(footer).font(S.detail).foregroundStyle(.secondary)
+                    .frame(maxWidth: S.helpWidth, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true).padding(.horizontal, DS.xs)
             }
         }
@@ -75,9 +105,9 @@ struct SettingsGroup<Content: View>: View {
 }
 
 /// All Settings buttons retain native activation and keyboard traversal, with a neutral
-/// visible focus outline instead of inheriting the editor's indigo accent.
+/// visible focus outline independent of the editor accent.
 struct SettingsButtonStyle: PrimitiveButtonStyle {
-    enum Kind { case standard, plain, choice(Bool), navigation(Bool), segment(Bool) }
+    enum Kind: Equatable { case standard, plain, choice(Bool), setupPrimary }
     var kind: Kind = .standard
     func makeBody(configuration: Configuration) -> some View { StyledButton(configuration: configuration, kind: kind) }
     private struct StyledButton: View {
@@ -98,23 +128,32 @@ struct SettingsButtonStyle: PrimitiveButtonStyle {
         let hovering: Bool
         @Environment(\.colorScheme) private var scheme
         @Environment(\.isEnabled) private var enabled
-        private var inset: CGFloat { if case .standard = kind { DS.sm } else { 0 } }
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        private var inset: CGFloat {
+            switch kind {
+            case .setupPrimary: DS.md
+            case .standard: DS.sm
+            default: 0
+            }
+        }
         private var fill: Color {
             switch kind {
+            case .setupPrimary: DS.accent.opacity(hovering ? 0.9 : 1)
             case .standard: hovering ? S.selection(scheme) : S.fill(scheme)
             case .plain: hovering ? S.fill(scheme) : .clear
-            case .choice(let selected), .navigation(let selected): selected ? S.selection(scheme) : (hovering ? S.fill(scheme) : .clear)
-            case .segment(let selected): selected ? S.raised(scheme) : (hovering ? S.fill(scheme) : .clear)
+            case .choice(let selected): selected ? S.selection(scheme) : (hovering ? S.fill(scheme) : .clear)
             }
         }
         func makeBody(configuration: Configuration) -> some View {
             configuration.label
-                .font(S.detail).foregroundStyle(Color.primary)
+                .font(kind == .setupPrimary ? S.navigation : S.detail)
+                .foregroundStyle(kind == .setupPrimary ? DS.onAccent : Color.primary)
                 .padding(.horizontal, inset).frame(minHeight: S.controlHeight)
                 .contentShape(RoundedRectangle(cornerRadius: S.controlRadius))
                 .background(fill, in: RoundedRectangle(cornerRadius: S.controlRadius))
                 .overlay(RoundedRectangle(cornerRadius: S.controlRadius)
                     .strokeBorder(focused ? S.accent(scheme) : .clear, lineWidth: S.focusWidth))
+                .animation(DS.Motion.hover(reduceMotion), value: hovering)
                 .opacity(enabled ? (configuration.isPressed ? 0.65 : 1) : 0.4)
         }
     }
@@ -125,6 +164,8 @@ struct SettingsSegments<Value: Hashable>: View {
     let selection: Value
     let select: (Value) -> Void
     @Environment(\.colorScheme) private var scheme
+    @Namespace private var indicator
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     init(_ options: [(Value, String)], selection: Value, select: @escaping (Value) -> Void) {
         self.options = options; self.selection = selection; self.select = select
     }
@@ -133,12 +174,21 @@ struct SettingsSegments<Value: Hashable>: View {
             ForEach(options, id: \.0) { value, title in
                 Button { select(value) } label: {
                     Text(title).font(S.detail).lineLimit(1).frame(maxWidth: .infinity)
+                        .frame(height: S.controlHeight - DS.xs)
+                        .background {
+                            if selection == value {
+                                let shape = RoundedRectangle(cornerRadius: S.controlRadius).fill(S.raised(scheme))
+                                if reduceMotion { shape.transition(.opacity) }
+                                else { shape.matchedGeometryEffect(id: "selected", in: indicator) }
+                            }
+                        }
                 }
-                .buttonStyle(SettingsButtonStyle(kind: .segment(selection == value)))
+                .buttonStyle(SettingsButtonStyle(kind: .plain))
                 .accessibilityAddTraits(selection == value ? .isSelected : [])
             }
         }
-        .padding(DS.xs / 2)
+        .animation(DS.Motion.snappy(reduceMotion), value: selection)
+        .padding(.horizontal, DS.xs / 2)
         .background(S.fill(scheme), in: RoundedRectangle(cornerRadius: S.controlRadius + DS.xs / 2))
     }
 }
@@ -152,14 +202,14 @@ struct SettingsToggle: View {
         Button { isOn.toggle() } label: {
             Capsule().fill(S.switchTrack(on: isOn, scheme: scheme))
                 .overlay(alignment: isOn ? .trailing : .leading) {
-                    Circle().fill(Color.white)
+                    Circle().fill(DS.white).id(reduceMotion ? isOn : false).transition(.opacity)
                         .frame(width: S.switchThumb, height: S.switchThumb).padding(DS.xs / 2)
                 }
                 .frame(width: S.switchSize.width, height: S.switchSize.height)
                 .padding(.horizontal, DS.xs)
         }
         .buttonStyle(SettingsButtonStyle(kind: .plain))
-        .animation(DS.quick(reduceMotion: reduceMotion), value: isOn)
+        .animation(DS.Motion.snappy(reduceMotion), value: isOn)
         .accessibilityRepresentation {
             Toggle(label, isOn: $isOn).toggleStyle(.switch)
         }
@@ -181,6 +231,7 @@ struct PreferenceSlider: View {
     init(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, unit: String = "", percent: Bool = false) {
         self.title = title; _value = value; self.range = range; self.unit = unit; self.percent = percent
     }
+    @Environment(\.settingsCompact) private var compact
     private func normalized(_ number: Double) -> Double { percent ? number : number.rounded() }
     private var display: String {
         let number = draft ?? value
@@ -203,7 +254,7 @@ struct PreferenceSlider: View {
                 Text(display).font(S.mono).foregroundStyle(.secondary).frame(width: 46, alignment: .trailing)
                     .accessibilityHidden(true)
             }.frame(width: S.controlWidth)
-        }.frame(minHeight: S.rowHeight)
+        }.frame(minHeight: compact ? S.compactHeight : S.rowHeight).modifier(SettingsRowHover())
     }
 }
 
@@ -224,9 +275,21 @@ struct SettingsMenu<Value: Hashable>: View {
     let label: String
     let options: [(Value, String)]
     @Binding var selection: Value
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.isEnabled) private var enabled
     var body: some View {
-        NativeSettingsMenu(label: label, options: options, selection: $selection)
-            .frame(width: S.controlWidth, height: S.controlHeight)
+        HStack(spacing: DS.sm) {
+            Text(options.first { $0.0 == selection }?.1 ?? "Choose…").font(S.detail).lineLimit(1)
+            Spacer(minLength: 0)
+            Icon("caret-up-down", size: DS.md)
+        }
+        .padding(.horizontal, DS.sm)
+        .frame(width: S.controlWidth, height: S.controlHeight)
+        .background(S.fill(scheme), in: RoundedRectangle(cornerRadius: S.controlRadius))
+        .overlay(RoundedRectangle(cornerRadius: S.controlRadius).strokeBorder(S.edge(scheme), lineWidth: S.hairline))
+        .opacity(enabled ? 1 : DS.mutedOpacity)
+        .accessibilityHidden(true)
+        .overlay { NativeSettingsMenu(label: label, options: options, selection: $selection) }
     }
 }
 
@@ -280,11 +343,129 @@ private final class SettingsPopUpButton: NSPopUpButton {
         return result
     }
     override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
+        // SwiftUI draws the label and bezel. The popup retains native menu and keyboard handling.
         if window?.firstResponder === self {
             S.nsFocus.setStroke()
             let path = NSBezierPath(roundedRect: bounds.insetBy(dx: DS.xs / 2, dy: DS.xs / 2), xRadius: S.controlRadius, yRadius: S.controlRadius)
             path.lineWidth = S.focusWidth; path.stroke()
         }
+    }
+}
+
+
+struct SettingsRow<Control: View>: View {
+    let title: String
+    let detail: String?
+    let detailLines: Int?
+    @ViewBuilder let control: () -> Control
+
+    @Environment(\.settingsCompact) private var compact
+    init(_ title: String, _ detail: String? = nil, detailLines: Int? = nil, @ViewBuilder control: @escaping () -> Control) {
+        self.title = title
+        self.detail = detail
+        self.detailLines = detailLines
+        self.control = control
+    }
+
+    var body: some View {
+        HStack(spacing: DS.md) {
+            VStack(alignment: .leading, spacing: DS.xs) {
+                Text(title).font(S.label).fixedSize(horizontal: false, vertical: true)
+                if let detail {
+                    Text(detail).font(S.detail).foregroundStyle(.secondary)
+                        .lineLimit(detailLines).truncationMode(.middle).fixedSize(horizontal: false, vertical: true).help(detail)
+                        .frame(maxWidth: S.helpWidth, alignment: .leading)
+                }
+            }
+            Spacer(minLength: DS.sm)
+            control().fixedSize(horizontal: true, vertical: false)
+        }
+        .padding(.vertical, compact ? DS.xs / 2 : DS.xs)
+        .frame(minHeight: compact ? S.compactHeight : S.rowHeight)
+        .modifier(SettingsRowHover())
+    }
+}
+
+struct SettingsDivider: View {
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        Rectangle().fill(S.edge(scheme)).frame(height: S.hairline)
+            .accessibilityHidden(true)
+    }
+}
+
+/// Wraps chips and toolbar previews without clipping longer labels in narrow windows.
+struct SettingsFlow: Layout {
+    let spacing: CGFloat
+
+    private func arrangement(_ subviews: Subviews, width: CGFloat) -> (origins: [CGPoint], size: CGSize) {
+        var origins: [CGPoint] = []
+        var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0, usedWidth: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(ProposedViewSize(width: width.isFinite ? width : nil, height: nil))
+            if x > 0, x + size.width > width {
+                x = 0
+                y += lineHeight + spacing
+                lineHeight = 0
+            }
+            origins.append(CGPoint(x: x, y: y))
+            usedWidth = max(usedWidth, x + size.width)
+            x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+        }
+        return (origins, CGSize(width: usedWidth, height: y + lineHeight))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        arrangement(subviews, width: proposal.width ?? .infinity).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for (subview, origin) in zip(subviews, arrangement(subviews, width: bounds.width).origins) {
+            subview.place(at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y),
+                          proposal: ProposedViewSize(width: bounds.width, height: nil))
+        }
+    }
+}
+
+struct SettingsMoveActions: ViewModifier {
+    let item: String
+    let items: [String]
+    let move: (String) -> Void
+
+    @ViewBuilder private var actions: some View {
+        if let index = items.firstIndex(of: item) {
+            if index > 0 { Button("Move up") { move(items[index - 1]) } }
+            if index + 1 < items.count { Button("Move down") { move(items[index + 1]) } }
+        }
+    }
+
+    func body(content: Content) -> some View {
+        content.contextMenu { actions }.accessibilityActions { actions }
+    }
+}
+
+struct SettingsIconTile: View {
+    let icon: String
+    let selected: Bool
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        Icon(icon, weight: selected ? .fill : .regular, size: DS.lg)
+            .frame(width: S.tile, height: S.tile)
+            .background(S.tileFill(scheme, selected: selected), in: RoundedRectangle(cornerRadius: S.controlRadius))
+            .overlay(RoundedRectangle(cornerRadius: S.controlRadius).strokeBorder(S.edge(scheme), lineWidth: S.hairline))
+            .accessibilityHidden(true)
+    }
+}
+
+struct SettingsRowHover: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var scheme
+    @LocalState private var hovering = false
+    func body(content: Content) -> some View {
+        content.background {
+            RoundedRectangle(cornerRadius: S.controlRadius).fill(S.fill(scheme))
+                .padding(.horizontal, -DS.xs).opacity(hovering ? 1 : 0)
+        }.onHover { hovering = $0 }.animation(DS.Motion.hover(reduceMotion), value: hovering)
     }
 }

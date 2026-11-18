@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import DesignSystem
 import Hotkeys
+import AI
 import Export
 import ServiceManagement
 
@@ -9,6 +10,9 @@ private typealias S = DS.Preferences
 
 public struct SettingsView: View {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var navigation
+    @LocalState private var visited: Set<Section> = []
     @Bindable private var store: SettingsStore
     @LocalState private var section: Section
     @LocalState private var search = ""
@@ -17,13 +21,16 @@ public struct SettingsView: View {
     @LocalState private var launchAtLogin = false
     @LocalState private var needsLoginApproval = false
     private let hasScreenAccess: Bool
+    private let assistantService: (AssistantProvider) -> any AssistantService
     private let openPrivacy: () -> Void
 
     public enum Section: String, CaseIterable, Sendable {
-        case general = "General", capture = "Capture", output = "Output", floating = "Pins & previews", shortcuts = "Shortcuts", library = "Library", privacy = "Privacy"
+        case general = "General", appearance = "Appearance", capture = "Capture", output = "Output", floating = "Pins & previews", shortcuts = "Shortcuts", library = "Library", privacy = "Privacy", assistant = "Assistant"
         var icon: String {
             switch self {
-            case .general: "gearshape"
+            case .general: "gear-six"
+            case .appearance: "palette"
+            case .assistant: "chat-circle-dots"
             case .capture: "viewfinder"
             case .output: "square.and.arrow.down"
             case .floating: "pin"
@@ -33,49 +40,77 @@ public struct SettingsView: View {
             }
         }
 
+        var subtitle: String {
+            switch self {
+            case .general: "Startup options and your capture defaults."
+            case .appearance: "Choose a look and arrange the controls you use."
+            case .capture: "Choose what to capture and what happens next."
+            case .output: "Set the format, name, and location of saved images."
+            case .floating: "Set up your capture thumbnails and pinned images."
+            case .shortcuts: "Assign keys to capture modes, actions, and editor tools."
+            case .library: "Manage the captures stored on this Mac."
+            case .privacy: "Manage screen access and how captures are processed."
+            case .assistant: "Choose how Ask answers questions about a capture."
+            }
+        }
     }
 
     public init(store: SettingsStore, hasScreenAccess: Bool, initialSection: Section = .general,
+                assistantService: @escaping (AssistantProvider) -> any AssistantService = Assistant.service(for:),
                 openPrivacy: @escaping () -> Void) {
         self.store = store; self.hasScreenAccess = hasScreenAccess
         self.openPrivacy = openPrivacy
+        self.assistantService = assistantService
         _section = LocalState(initialValue: initialSection)
     }
 
     public var body: some View {
         HStack(spacing: 0) {
             sidebar
-            ScrollView {
-                VStack(alignment: .leading, spacing: S.sectionGap) {
-                    header
-                    switch section {
-                    case .general: general
-                    case .capture: capture
-                    case .output: output
-                    case .floating: floating
-                    case .shortcuts: shortcuts
-                    case .library: library
-                    case .privacy: privacy
-                    }
-                    if let message = store.recoveryMessage { notice(message) }
-                }
-                .frame(maxWidth: S.contentWidth, alignment: .leading)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, S.pageInset).padding(.top, S.titlebarInset).padding(.bottom, S.pageInset)
-            }
-            .scrollIndicators(.automatic)
-            .id(section)
+            ZStack {
+                page.id(section)
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: DS.sm)))
+            }.animation(DS.Motion.panel(reduceMotion), value: section)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(S.canvas(scheme))
         .tint(S.accent(scheme)).controlSize(.small)
         .ignoresSafeArea()
+        .environment(\.settingsCompact, store.preferences.customization.density == .compact)
+        .onChange(of: section) { previous, _ in visited.insert(previous) }
         .onAppear { launchAtLogin = SMAppService.mainApp.status == .enabled; needsLoginApproval = SMAppService.mainApp.status == .requiresApproval }
     }
 
+    private var page: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: S.sectionGap) {
+                header
+                switch section {
+                case .general: general
+                case .appearance: AppearanceSettings(store: store)
+                case .assistant: AssistantSettings(store: store, factory: assistantService)
+                case .capture: capture
+                case .output: output
+                case .floating: floating
+                case .shortcuts: shortcuts
+                case .library: library
+                case .privacy: privacy
+                }
+                if let message = store.recoveryMessage { notice(message) }
+            }
+            .frame(maxWidth: S.contentWidth, alignment: .leading)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, S.pageInset).padding(.top, S.titlebarInset).padding(.bottom, S.pageInset)
+        }
+        .scrollIndicators(.automatic)
+        .environment(\.settingsFirstVisit, !visited.contains(section))
+    }
+
     private var header: some View {
-        Text(section.rawValue).font(S.title).accessibilityAddTraits(.isHeader)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: DS.xs) {
+            Text(section.rawValue).font(S.title).accessibilityAddTraits(.isHeader)
+            Text(section.subtitle).font(S.label).foregroundStyle(.secondary)
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var matchingSections: [Section] {
@@ -83,7 +118,9 @@ public struct SettingsView: View {
         return Section.allCases.filter { item in
             let keywords: String
             switch item {
-            case .general: keywords = "appearance theme dark light system login startup dock"
+            case .general: keywords = "login startup dock"
+            case .appearance: keywords = "theme dark light system accent density compact glass solid chrome toolbar editor tools area overlay labels thumbnail buttons"
+            case .assistant: keywords = "ask chatgpt codex claude provider model account sign in out privacy redact text conversations suggestions"
             case .capture: keywords = "area window screen scrolling auto automatic copy clipboard save editor shadow cursor pointer icons sound backdrop actions enter return confirm release skip instant"
             case .output: keywords = "png jpeg heic pdf tiff webp avif format quality resolution retina color srgb file name folder location editable"
             case .floating: keywords = "thumbnail corner position dismiss timer size pin opacity transparency shadow spaces move resize"
@@ -96,11 +133,21 @@ public struct SettingsView: View {
     }
 
     private var sidebar: some View {
+        GeometryReader { bounds in
+            sidebarContent(short: bounds.size.height < S.shortWindowHeight)
+        }.frame(width: S.sidebar)
+    }
+
+    private func sidebarContent(short: Bool) -> some View {
         VStack(alignment: .leading, spacing: DS.xs / 2) {
-            Text("SuperShot").font(DS.emphasis)
-                .padding(.horizontal, DS.sm).padding(.bottom, DS.md)
+            if !short {
+                HStack(spacing: DS.sm) {
+                    Icon("frame-corners", weight: .bold, size: DS.iconSize)
+                    Text("SuperShot").font(DS.emphasis)
+                }.padding(.horizontal, DS.sm).padding(.bottom, DS.md)
+            }
             HStack(spacing: DS.xs) {
-                Icon("magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                Icon("magnifying-glass", size: DS.md).foregroundStyle(.secondary).accessibilityHidden(true)
                 TextField("Search settings", text: $search).textFieldStyle(.plain)
                     .focused($searchFocused).focusEffectDisabled()
                     .accessibilityLabel("Search settings")
@@ -112,38 +159,39 @@ public struct SettingsView: View {
             .font(S.detail).padding(.horizontal, DS.sm).frame(height: S.controlHeight)
             .background(S.fill(scheme), in: RoundedRectangle(cornerRadius: S.controlRadius))
             .overlay(RoundedRectangle(cornerRadius: S.controlRadius)
-                .strokeBorder(searchFocused ? S.accent(scheme) : .clear, lineWidth: S.focusWidth))
+                .strokeBorder(searchFocused ? S.accent(scheme) : S.edge(scheme), lineWidth: searchFocused ? S.focusWidth : S.hairline))
             .padding(.bottom, DS.sm)
-            ForEach(matchingSections, id: \.self) { item in
-                Button { section = item } label: {
-                    HStack(spacing: DS.sm) {
-                        Icon(item.icon).font(S.label.weight(.regular))
-                            .frame(width: DS.lg).foregroundStyle(.secondary).accessibilityHidden(true)
-                        Text(item.rawValue).font(S.label)
-                        Spacer(minLength: 0)
+            ScrollView {
+                VStack(alignment: .leading, spacing: short ? 0 : DS.xs) {
+                    navigationGroup("Interface", [.general, .appearance], short: short)
+                    navigationGroup("Capture & output", [.capture, .output, .floating, .shortcuts, .library], short: short)
+                    navigationGroup("Account", [.privacy, .assistant], short: short)
+                    if matchingSections.isEmpty {
+                        Text("No matching settings").font(S.detail).foregroundStyle(.secondary).padding(DS.sm)
                     }
-                    .padding(.horizontal, DS.sm).frame(height: S.navigationHeight)
-                }
-                .buttonStyle(SettingsButtonStyle(kind: .navigation(section == item)))
-                .accessibilityAddTraits(section == item ? .isSelected : [])
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                    .id(reduceMotion ? matchingSections : nil).transition(.opacity)
             }
-            if matchingSections.isEmpty {
-                Text("No matching settings").font(S.detail).foregroundStyle(.secondary).padding(DS.sm)
+            .scrollIndicators(.hidden)
+            .animation(DS.Motion.snappy(reduceMotion), value: matchingSections)
+            Button { search = ""; section = .privacy } label: {
+                HStack(spacing: DS.sm) {
+                    Icon(hasScreenAccess ? "shield-check" : "shield-warning", size: DS.iconSize)
+                    VStack(alignment: .leading, spacing: DS.xs) {
+                        Text(hasScreenAccess ? "Screen access on" : "Screen access off").font(S.detail)
+                        Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.1")")
+                            .font(S.mono).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }.padding(DS.sm)
             }
-            Spacer(minLength: DS.lg)
-            Button { section = .privacy } label: {
-                HStack(spacing: DS.xs) {
-                    Icon(hasScreenAccess ? "checkmark.shield" : "exclamationmark.shield")
-                        .accessibilityHidden(true)
-                    Text(hasScreenAccess ? "Screen access allowed" : "Screen access needed")
-                }.font(S.detail).foregroundStyle(.secondary)
-            }
-            .buttonStyle(SettingsButtonStyle(kind: .plain)).padding(.horizontal, DS.xs)
-            Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.1")")
-                .font(S.detail).foregroundStyle(.secondary).padding(.horizontal, DS.xs).padding(.top, DS.xs)
+            .buttonStyle(SettingsButtonStyle(kind: .plain))
+            .background(S.fill(scheme), in: RoundedRectangle(cornerRadius: S.radius))
+            .overlay(RoundedRectangle(cornerRadius: S.radius).strokeBorder(S.edge(scheme), lineWidth: S.hairline))
         }
         .padding(DS.md).padding(.top, S.titlebarInset - DS.md)
         .frame(width: S.sidebar).frame(maxHeight: .infinity)
+        .animation(DS.Motion.snappy(reduceMotion), value: section)
         .background(SettingsSurface(role: .sidebar))
         .overlay(alignment: .trailing) { Rectangle().fill(S.edge(scheme)).frame(width: S.hairline) }
         .onChange(of: search) { _, _ in
@@ -151,17 +199,47 @@ public struct SettingsView: View {
         }
     }
 
+    @ViewBuilder private func navigationGroup(_ title: String, _ pages: [Section], short: Bool) -> some View {
+        let matches = pages.filter(matchingSections.contains)
+        if !matches.isEmpty {
+            Text(title.uppercased()).font(S.section).foregroundStyle(.secondary)
+                .padding(.leading, DS.sm).padding(.top, short ? DS.xs : DS.sm).accessibilityAddTraits(.isHeader)
+            ForEach(matches, id: \.self) { item in
+                Button { section = item } label: {
+                    HStack(spacing: DS.sm) {
+                        SettingsIconTile(icon: item.icon, selected: section == item)
+                        Text(highlighted(item.rawValue)).font(section == item ? S.navigation : S.label)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, DS.xs).frame(height: short ? S.controlHeight : S.navigationHeight)
+                    .background {
+                        if section == item {
+                            let shape = RoundedRectangle(cornerRadius: S.controlRadius).fill(S.selection(scheme))
+                            if reduceMotion { shape.transition(.opacity) }
+                            else { shape.matchedGeometryEffect(id: "selection", in: navigation) }
+                        }
+                    }
+                }
+                .buttonStyle(SettingsButtonStyle(kind: .plain))
+                .accessibilityAddTraits(section == item ? .isSelected : [])
+                .transition(DS.Motion.rise(reduceMotion: reduceMotion))
+            }
+        }
+    }
+
+    private func highlighted(_ title: String) -> AttributedString {
+        var result = AttributedString(title)
+        if !search.isEmpty, let match = result.range(of: search, options: .caseInsensitive) {
+            result[match].backgroundColor = S.selection(scheme)
+            result[match].inlinePresentationIntent = .stronglyEmphasized
+        }
+        return result
+    }
+
     // MARK: General
 
     private var general: some View {
         Group {
-            group("Interface") {
-                row("Appearance", "Use the system appearance or choose your own.") {
-                    SettingsSegments(AppAppearance.allCases.map { ($0, $0.title) }, selection: store.preferences.appearance) {
-                        store.preferences.appearance = $0
-                    }.frame(width: S.controlWidth)
-                }
-            }
             group("Startup") {
                 row("Launch at login", "Start SuperShot when you sign in.") {
                     toggle("Launch at login", Binding(get: { launchAtLogin }, set: { enabled in
@@ -182,7 +260,7 @@ public struct SettingsView: View {
                     toggle("Show in the Dock", $store.preferences.showDockIcon)
                 }
             }
-            group("Capture preferences") {
+            group("Capture preferences", index: 1) {
                 row("Area capture", store.preferences.areaAction.title) {
                     Button("Edit…") { section = .capture }.buttonStyle(SettingsButtonStyle())
                 }
@@ -212,7 +290,7 @@ public struct SettingsView: View {
                     toggle("Capture on mouse release", $store.preferences.captureOnRelease)
                 }
             }
-            group("After capture", footer: "Choose any combination. Auto-copy also applies to area captures and custom actions.") {
+            group("After capture", index: 1, footer: "Choose any combination. Auto-copy also applies to area captures and custom actions.") {
                 HStack(spacing: DS.xs) {
                     ForEach(AfterCapture.allCases, id: \.self) { action in
                         actionChoice(action, selected: store.preferences.afterCapture.contains(action)) {
@@ -228,7 +306,7 @@ public struct SettingsView: View {
                         .frame(width: S.controlWidth)
                 }
             }
-            group("What gets captured") {
+            group("What gets captured", index: 2) {
                 row("Include the pointer") { toggle("Include the pointer", $store.preferences.includeCursor) }
                 separator
                 row("Keep window shadow", "Off trims the shadow from window captures.") { toggle("Keep window shadow", $store.preferences.keepWindowShadow) }
@@ -241,7 +319,7 @@ public struct SettingsView: View {
                     toggle("Apply my backdrop", $store.preferences.automaticBackdrop)
                 }
             }
-            group("Different actions for", footer: "Override the defaults for a capture mode.") {
+            group("Different actions for", index: 3, footer: "Override the defaults for a capture mode.") {
                 ForEach(Array(["screen", "window", "scrolling"].enumerated()), id: \.element) { index, mode in
                     if index > 0 { separator }
                     row("\(mode.capitalized) captures") {
@@ -292,7 +370,7 @@ public struct SettingsView: View {
                 separator
                 PreferenceSlider("Thumbnail width", value: $store.preferences.floating.thumbnailWidth, range: 200...360, unit: "pt")
             }
-            group("New pins", footer: "Drag the image to move it. Drag an edge or corner to resize. Double-click to restore its initial size. Existing pins keep their own settings.") {
+            group("New pins", index: 1, footer: "Drag the image to move it. Drag an edge or corner to resize. Double-click to restore its initial size. Existing pins keep their own settings.") {
                 PreferenceSlider("Initial size", value: $store.preferences.floating.pinSize, range: 240...1000, unit: "pt")
                 separator
                 PreferenceSlider("Opacity", value: $store.preferences.floating.pinOpacity, range: 0.2...1, percent: true)
@@ -301,7 +379,7 @@ public struct SettingsView: View {
                 separator
                 row("Window shadow") { toggle("Pin window shadow", $store.preferences.floating.pinShadow) }
             }
-            group("Click-through lock", footer: "Locked pins let you click the app behind them. Choose Unlock Pins in the SuperShot menu to interact with them again.") {
+            group("Click-through lock", index: 2, footer: "Locked pins let you click the app behind them. Choose Unlock Pins in the SuperShot menu to interact with them again.") {
                 HStack(spacing: DS.sm) {
                     Icon("lock").foregroundStyle(.secondary)
                     Text("Hover over a pin and choose the lock button").font(S.label)
@@ -326,7 +404,7 @@ public struct SettingsView: View {
                 separator
                 PreferenceSlider("Quality", value: $store.preferences.quality, range: 0.1...1, percent: true)
             }
-            group("Image") {
+            group("Image", index: 1) {
                 row("Resolution", "Full keeps every Retina pixel.") {
                     SettingsSegments([(false, "Full"), (true, "1×")], selection: store.preferences.oneX) { store.preferences.oneX = $0 }.frame(width: 150)
                 }
@@ -337,7 +415,7 @@ public struct SettingsView: View {
                 separator
                 row("Save an editable copy", "Adds a .supershot file so annotations can be changed later.") { toggle("Save an editable copy", $store.preferences.saveSidecar) }
             }
-            group("File name") {
+            group("File name", index: 2) {
                 TextField("File name", text: $store.preferences.filenameTemplate)
                     .modifier(SettingsField()).accessibilityLabel("File name template")
                 HStack(spacing: DS.xs) {
@@ -353,7 +431,7 @@ public struct SettingsView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.top, DS.md)
             }
-            group("Location") {
+            group("Location", index: 3) {
                 row("Save folder", abbreviated(store.preferences.saveFolder), detailLines: 1) {
                     Button("Choose…") {
                         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.canCreateDirectories = true
@@ -384,13 +462,13 @@ public struct SettingsView: View {
             group("Capture", footer: "Click a shortcut, then press the new keys. Include ⌘, ⌃, or ⌥. Esc cancels.") {
                 shortcutRows(Array(Shortcut.actions.prefix(9)))
             }
-            group("Other") { shortcutRows(Array(Shortcut.actions.dropFirst(9)) + presetActions) }
-            group("Editor tools", footer: "Single keys that switch tools while the editor is focused.") {
+            group("Other", index: 1) { shortcutRows(Array(Shortcut.actions.dropFirst(9)) + presetActions) }
+            group("Editor tools", index: 2, footer: "Single keys that switch tools while the editor is focused.") {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: DS.lg), count: 2), spacing: DS.sm) {
                     ForEach(Shortcut.editorDefaults.keys.sorted(), id: \.self) { id in editorKey(id) }
                 }
             }
-            group("Profiles") {
+            group("Profiles", index: 3) {
                 row("Shortcut profile") {
                     HStack(spacing: DS.sm) {
                         Button("Import…") { importShortcuts() }.buttonStyle(SettingsButtonStyle())
@@ -486,7 +564,7 @@ public struct SettingsView: View {
             separator
             row("Keep captures for") {
                 SettingsMenu(label: "History retention", options: [(7, "7 days"), (30, "30 days"), (90, "90 days"), (0, "Forever")],
-                             selection: $store.preferences.retentionDays)
+                             selection: $store.preferences.retentionDays).disabled(!store.preferences.historyEnabled)
             }
         }
     }
@@ -498,10 +576,12 @@ public struct SettingsView: View {
                     Button("Open Settings…", action: openPrivacy).buttonStyle(SettingsButtonStyle())
                 }
             }
-            group("Local processing") {
-                row("No uploads", "Captures never leave this Mac unless you share them.") { EmptyView() }
+            group("Local processing", index: 1) {
+                row("On-device recognition", "Text and barcode recognition run on this Mac.") { EmptyView() }
                 separator
-                row("No analytics or accounts", "This build makes no network requests.") { EmptyView() }
+                row("Ask about a capture", "Ask sends a capture to the provider you choose.") {
+                    Button("Assistant…") { section = .assistant }.buttonStyle(SettingsButtonStyle())
+                }
                 separator
                 row("Accessibility only on request", "Asked for only if you turn on automatic scrolling.") { EmptyView() }
             }
@@ -510,26 +590,14 @@ public struct SettingsView: View {
 
     // MARK: Building blocks
 
-    private func group<Content: View>(_ title: String?, footer: String? = nil, @ViewBuilder content: @escaping () -> Content) -> some View {
-        SettingsGroup(title: title, footer: footer, content: content)
+    private func group<Content: View>(_ title: String?, index: Int = 0, footer: String? = nil, @ViewBuilder content: @escaping () -> Content) -> some View {
+        SettingsGroup(title: title, index: index, footer: footer, content: content)
     }
     private func row<Control: View>(_ title: String, _ detail: String? = nil, detailLines: Int? = nil,
-                                    @ViewBuilder control: () -> Control) -> some View {
-        HStack(spacing: DS.md) {
-            VStack(alignment: .leading, spacing: DS.xs / 2) {
-                Text(title).font(S.label).fixedSize(horizontal: false, vertical: true)
-                if let detail {
-                    Text(detail).font(S.detail).foregroundStyle(.secondary)
-                        .lineLimit(detailLines).truncationMode(.middle).fixedSize(horizontal: false, vertical: true).help(detail)
-                }
-            }
-            Spacer(minLength: DS.sm)
-            control().fixedSize(horizontal: true, vertical: false)
-        }.frame(minHeight: S.rowHeight)
+                                    @ViewBuilder control: @escaping () -> Control) -> some View {
+        SettingsRow(title, detail, detailLines: detailLines, control: control)
     }
-    private var separator: some View {
-        Rectangle().fill(S.edge(scheme)).frame(height: S.hairline).padding(.vertical, DS.sm)
-    }
+    private var separator: some View { SettingsDivider() }
     private func toggle(_ label: String, _ binding: Binding<Bool>) -> some View {
         SettingsToggle(label: label, isOn: binding)
     }

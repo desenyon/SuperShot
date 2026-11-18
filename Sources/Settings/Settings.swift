@@ -67,7 +67,10 @@ public struct AssistantPreferences: Codable, Equatable, Sendable {
         includeRecognizedText = try v.decodeIfPresent(Bool.self, forKey: .includeRecognizedText) ?? true
         redactBeforeSending = try v.decodeIfPresent(Bool.self, forKey: .redactBeforeSending) ?? false
         keepConversations = try v.decodeIfPresent(Bool.self, forKey: .keepConversations) ?? true
-        suggestions = try v.decodeIfPresent([String].self, forKey: .suggestions) ?? Self.defaultSuggestions
+        let saved = try v.decodeIfPresent([String].self, forKey: .suggestions) ?? Self.defaultSuggestions
+        var seen = Set<String>()
+        suggestions = saved.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
         if !["chatgpt", "claude", "off"].contains(provider) { provider = "chatgpt" }
     }
     public var isEnabled: Bool { provider != "off" }
@@ -99,11 +102,10 @@ public struct CustomizationPreferences: Codable, Equatable, Sendable {
         accent = try v.decodeIfPresent(DS.AccentChoice.self, forKey: .accent) ?? .blue
         density = try v.decodeIfPresent(DS.Density.self, forKey: .density) ?? .regular
         chrome = try v.decodeIfPresent(DS.Chrome.self, forKey: .chrome) ?? .glass
-        editorTools = try v.decodeIfPresent([String].self, forKey: .editorTools) ?? Self.defaultEditorTools
-        overlayActions = (try v.decodeIfPresent([String].self, forKey: .overlayActions) ?? Self.defaultOverlayActions).filter(Self.allOverlayActions.contains)
-        thumbnailActions = (try v.decodeIfPresent([String].self, forKey: .thumbnailActions) ?? Self.defaultThumbnailActions).filter(Self.allThumbnailActions.contains)
+        editorTools = CustomizationList.editor.normalized(try v.decodeIfPresent([String].self, forKey: .editorTools) ?? Self.defaultEditorTools)
+        overlayActions = CustomizationList.overlay.normalized(try v.decodeIfPresent([String].self, forKey: .overlayActions) ?? Self.defaultOverlayActions)
+        thumbnailActions = CustomizationList.thumbnail.normalized(try v.decodeIfPresent([String].self, forKey: .thumbnailActions) ?? Self.defaultThumbnailActions)
         overlayLabels = try v.decodeIfPresent(Bool.self, forKey: .overlayLabels) ?? true
-        if !overlayActions.contains("capture") { overlayActions.insert("capture", at: 0) }
     }
 }
 
