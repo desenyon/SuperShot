@@ -61,6 +61,7 @@ import Carbon
         }
         if appliedKeepConversations == true && !preferences.assistant.keepConversations { captures.forgetConversations() }
         appliedKeepConversations = preferences.assistant.keepConversations
+        if captures.pins.unlockKey != preferences.floating.pinUnlockKey { captures.pins.unlockKey = preferences.floating.pinUnlockKey }
         let theme = ThemeState.shared, look = preferences.customization
         // Assigning an @Observable property invalidates its readers even when unchanged; guard so slider ticks stay free.
         if theme.accent != look.accent { theme.accent = look.accent }

@@ -60,7 +60,13 @@ private actor MemoryLines: LineTransport {
             else { try reply(["data": [["model": "beta"]]]) }
         case "thread/start":
             count += 1; try reply(["thread": ["id": .string("thread-\(count)")]])
-        case "mcpServerStatus/list": try reply(["data": activeMCP ? [["name": "unexpected"]] : []])
+        case "config/read": try reply(["config": ["mcp_servers": ["browser": ["command": "x"], "trading": ["url": "https://example.test"]]]])
+        case "mcpServerStatus/list":
+            // Codex lists configured servers even when they are disabled for the thread.
+            try reply(["data": activeMCP ? [["name": "browser", "runtimeStatus": "disabled", "tools": [:]],
+                                            ["name": "trading", "runtimeStatus": "connected", "tools": ["buy": [:]]]]
+                                         : [["name": "browser", "runtimeStatus": "disabled", "tools": [:]],
+                                            ["name": "trading", "runtimeStatus": "disabled", "tools": [:]]]])
         case "turn/start":
             let id = params["threadId"]
             count += 1
@@ -98,6 +104,9 @@ struct AssistantTests {
     private func runtime(_ io: MemoryLines, version: String = "2.1.325", auth: String = "claude.ai") -> AssistantRuntime {
         AssistantRuntime(locate: { name in Harness(url: URL(fileURLWithPath: "/fixture/" + name), version: version, path: "/bin") },
                          launch: { _, _, _ in io }, command: { _, args in
+            if args == ["features", "list"] {
+                return LineProcess.ResultText(stdout: "plugins   stable  true\nshell_tool   stable  true\napps   stable  true\n", stderr: "", status: 0)
+            }
             #expect(args == ["auth", "status", "--json"])
             return LineProcess.ResultText(stdout: #"{"loggedIn":true,"authMethod":"\#(auth)","email":"a@example.test","subscriptionType":"max"}"#, stderr: "", status: 0)
         })
@@ -171,6 +180,7 @@ struct AssistantTests {
         await #expect(throws: AssistantError.limitReached(resetsAt: expected.resetsAt)) { try await collect(chat.send("limit", attachments: [])) }
         let starts = await io.messages("turn/start"), thread = try #require(await io.messages("thread/start").first?["params"])
         #expect(thread["ephemeral"] == true && thread["sandbox"] == "read-only" && thread["approvalPolicy"] == "never")
+        #expect(thread["config"]["mcp_servers"] == ["browser": ["enabled": false], "trading": ["enabled": false]])
         #expect(thread["baseInstructions"].text == AssistantPrompt.instructions(for: capture))
         let first = starts[0]["params"], items = first["input"].values
         #expect(items.count == 3 && items[2]["text"] == "first\n[Attached: Region 1 · 20 × 10]")
@@ -291,8 +301,12 @@ struct AssistantTests {
         if sys.argv[1:] == ['--version']:
             print('codex-cli 0.169.0')
             sys.exit(0)
+        if sys.argv[1:] == ['features', 'list']:
+            print('plugins      stable  true\nshell_tool   stable  true\nhooks        stable  true')
+            sys.exit(0)
         assert sys.argv[1:3] == ['app-server', '--stdio']
-        assert 'mcp_servers={}' in sys.argv and 'plugins' in sys.argv and 'shell_tool' in sys.argv
+        disabled = [sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == '--disable']
+        assert 'plugins' in disabled and 'shell_tool' in disabled and 'browser_use' not in disabled, disabled
         assert os.stat('.').st_mode & 0o777 == 0o700
         initialized = False
         for line in sys.stdin:
@@ -308,9 +322,13 @@ struct AssistantTests {
                 assert initialized
                 reply({'account': {'type': 'chatgpt', 'planType': 'pro'}})
             elif method == 'thread/start':
+                assert params['config'] == {'mcp_servers': {'repl': {'enabled': False}}}, params.get('config')
                 cwd = params['cwd']
                 reply({'thread': {'id': 'T'}})
-            elif method == 'mcpServerStatus/list': reply({'data': []})
+            elif method == 'config/read': reply({'config': {'mcp_servers': {'repl': {'command': 'node'}}}})
+            elif method == 'mcpServerStatus/list':
+                assert params['threadId'] == 'T'
+                reply({'data': [{'name': 'repl', 'runtimeStatus': 'disabled', 'tools': {}}]})
             elif method == 'turn/start':
                 inputs = params['input']
                 prompt = inputs[-1]['text']
@@ -381,5 +399,19 @@ struct AssistantTests {
         }
         await chat.close()
         await #expect(throws: AssistantError.cancelled) { try await collect(chat.send("closed", attachments: [])) }
+    }
+}
+
+extension AssistantTests {
+    @Test func featureListAndMCPInventoryParsing() {
+        let names = CodexAssistantService.featureNames("apps                stable  true\nbrowser_use   stable  true\n\n")
+        #expect(names == ["apps", "browser_use"])
+        #expect(CodexAssistantService.featureNames(nil) == nil && CodexAssistantService.featureNames("") == nil)
+        #expect(CodexAssistantService.mcpServerNames(["b": [:], "a": [:]]) == ["a", "b"])
+        #expect(CodexAssistantService.mcpServerNames(.null).isEmpty)
+        let disabled: WireValue = [["name": "a", "runtimeStatus": "disabled", "tools": [:]]]
+        #expect(CodexAssistantService.liveMCPServer(disabled) == nil)
+        #expect(CodexAssistantService.liveMCPServer([["name": "b", "runtimeStatus": "failed"]]) == "b")
+        #expect(CodexAssistantService.liveMCPServer([["name": "c", "runtimeStatus": "disabled", "tools": ["t": [:]]]]) == "c")
     }
 }

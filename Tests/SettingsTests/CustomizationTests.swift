@@ -83,3 +83,28 @@ extension CustomizationTests {
         #expect(preferences.suggestions == ["Explain", "Summarize"])
     }
 }
+
+struct SuggestionMigrationTests {
+    @Test func untouchedOldDefaultsBecomeTheFourQuickActions() throws {
+        let old = #"{"suggestions":["Explain this","Summarize","What should I do next?","Write alt text"]}"#
+        #expect(try JSONDecoder().decode(AssistantPreferences.self, from: Data(old.utf8)).suggestions == ["Solve", "Explain", "Suggest", "Improve"])
+        let custom = #"{"suggestions":["Summarize","Translate"]}"#
+        #expect(try JSONDecoder().decode(AssistantPreferences.self, from: Data(custom.utf8)).suggestions == ["Summarize", "Translate"])
+        #expect(AssistantPreferences().suggestions == ["Solve", "Explain", "Suggest", "Improve"])
+    }
+}
+
+struct PinUnlockPreferenceTests {
+    @Test func olderFloatingPreferencesKeepTheirValuesAndDefaultToOption() throws {
+        let saved = #"{"thumbnailCorner":"topLeft","thumbnailSeconds":10,"thumbnailWidth":300,"pinSize":600,"pinOpacity":0.8,"pinAllSpaces":false,"pinShadow":false}"#
+        let floating = try JSONDecoder().decode(FloatingPreferences.self, from: Data(saved.utf8))
+        #expect(floating.thumbnailCorner == .topLeft && floating.pinSize == 600 && !floating.pinShadow)
+        #expect(floating.pinUnlockKey == .option)
+        let unknown = try JSONDecoder().decode(FloatingPreferences.self, from: Data(#"{"pinUnlockKey":"hyper"}"#.utf8))
+        #expect(unknown.pinUnlockKey == .option)
+        var changed = FloatingPreferences(); changed.pinUnlockKey = .command
+        let round = try JSONDecoder().decode(FloatingPreferences.self, from: JSONEncoder().encode(changed))
+        #expect(round.pinUnlockKey == .command)
+        #expect(PinUnlockKey.allCases.map(\.symbol) == ["⌥", "⌘", "⌃", "⇧"])
+    }
+}

@@ -117,7 +117,7 @@ import Export
         let selection = ThumbnailAskSelection(); selection.id = capture.id
         func editor(_ messages: [AskMessage] = [], availability: AssistantAvailability = .ready(account), limited: Bool = false) -> EditorModel {
             let model = EditorModel(document: doc)
-            let options = AskOptions(suggestions: ["Summarize", "Write alt text", "Next steps"])
+            let options = AskOptions(suggestions: ["Solve", "Explain", "Suggest", "Improve"])
             let factory: AssistantFactory = { provider in
                 PreviewAssistantService(provider: provider, state: availability,
                                         usage: .init(usedFraction: limited ? 1 : 0.18, resetsAt: limited ? Date(timeIntervalSince1970: 1_795_453_200) : nil, limitReached: limited))
@@ -137,8 +137,10 @@ import Export
         region.ask?.attach(tag, in: doc)
         region.ask?.draft = "Who needs to follow up on this item?"
         let signedOut = editor(availability: .signedOut(toolVersion: "1.0", toolPath: "/preview"))
+        var suggest = AskMessage(.user, AskQuickAction.named("Suggest").request(with: "before sharing this project"))
+        suggest.action = .named("Suggest"); suggest.typed = "before sharing this project"
         let floating = editor([
-            AskMessage(.user, "What should I follow up on before sharing this project?"),
+            suggest,
             AskMessage(.assistant, """
                 The **prototype handoff** is the only item marked `In progress`.
 
@@ -155,7 +157,9 @@ import Export
                 thumb.frame(width: DS.thumbnailSize.width, height: DS.thumbnailSize.height)
             }.padding(DS.xl)
         }
-        let consent = editor(), limited = editor(limited: true)
+        let consent = editor(), limited = editor(limited: true), empty = editor()
+        var explain = AskMessage(.user, AskQuickAction.named("Explain").prompt); explain.action = .named("Explain")
+        let thinking = editor([explain, AskMessage(.assistant, "", status: .streaming)])
         func state(_ model: EditorModel) -> some View {
             ZStack {
                 AskPreviewWallpaper(image: nil)
@@ -171,7 +175,9 @@ import Export
                 guard let ask = consent.ask else { return }; await ask.refreshAvailability()
                 ask.draft = "What should I follow up on?"; ask.send(document: doc)
             })),
-            Scene(name: "ask-limit", size: CGSize(width: 460, height: 664), view: AnyView(state(limited)))
+            Scene(name: "ask-limit", size: CGSize(width: 460, height: 664), view: AnyView(state(limited))),
+            Scene(name: "ask-empty", size: CGSize(width: 460, height: 664), view: AnyView(state(empty))),
+            Scene(name: "ask-thinking", size: CGSize(width: 460, height: 664), view: AnyView(state(thinking)))
         ]
     }
 
@@ -270,6 +276,10 @@ extension PreviewRenderer {
 
         let activePin = PinState(image: image); activePin.hovering = true
         list.append(Scene(name: "pin-controls", size: CGSize(width: 420, height: 270), view: AnyView(PinView(state: activePin))))
+        let hinting = PinState(image: image); hinting.locked = true; hinting.hinting = true
+        let peeking = PinState(image: image); peeking.locked = true; peeking.hinting = true; peeking.peeking = true
+        list.append(Scene(name: "pin-locked-hint", size: CGSize(width: 420, height: 270), view: AnyView(PinView(state: hinting))))
+        list.append(Scene(name: "pin-locked-unlock", size: CGSize(width: 420, height: 270), view: AnyView(PinView(state: peeking))))
         list.append(Scene(name: "pin-narrow", size: CGSize(width: 100, height: 300), view: AnyView(PinView(state: activePin))))
         list.append(Scene(name: "settings-permission", size: DS.settingsSize,
                           view: AnyView(SettingsView(store: store, hasScreenAccess: false, initialSection: .privacy, openPrivacy: {}))))

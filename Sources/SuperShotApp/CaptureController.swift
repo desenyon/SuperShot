@@ -535,6 +535,31 @@ import UniformTypeIdentifiers
     var id: UUID?
 }
 
+/// A hover button on the thumbnail's glass bar: a soft wash on hover, accent fill while its panel is open.
+private struct ThumbnailGlassButton: View {
+    let icon: String
+    let label: String
+    let active: Bool
+    let perform: () -> Void
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    @LocalState private var hovering = false
+    var body: some View {
+        Button(action: perform) {
+            Icon(icon, weight: active || hovering ? .fill : .regular, size: DS.iconSize)
+                .foregroundStyle(active ? DS.onAccent : Color.primary.opacity(hovering ? 1 : 0.85))
+                .frame(maxWidth: DS.toolButton).frame(height: DS.Ask.send)
+                .background {
+                    if active { RoundedRectangle(cornerRadius: DS.controlRadius, style: .continuous).fill(DS.accent) }
+                    else if hovering { RoundedRectangle(cornerRadius: DS.controlRadius, style: .continuous).fill(DS.hover(scheme)) }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PressableStyle()).help(label).accessibilityLabel(label)
+        .onHover { over in withAnimation(DS.Motion.hover(reduced)) { hovering = over } }
+    }
+}
+
 struct ThumbnailView: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduced
@@ -568,22 +593,27 @@ struct ThumbnailView: View {
         .overlay(RoundedRectangle(cornerRadius: DS.Ask.bubble).strokeBorder(active ? DS.accent : DS.hairline(scheme), lineWidth: active ? DS.stroke * 2 : DS.stroke))
         .overlay(alignment: .bottom) {
             if hovering || active {
-                HStack(spacing: 0) {
-                    ForEach(Array(actions.enumerated()), id: \.element) { index, id in
-                        let item = button(id)
-                        Button(action: item.perform) {
-                            Icon(item.icon, weight: active && id == "ask" ? .fill : .regular, size: DS.iconSize)
-                                .foregroundStyle(active && id == "ask" ? DS.onAccent : Color.primary)
-                                .frame(maxWidth: DS.toolButton).frame(height: DS.Ask.send)
-                                .background(active && id == "ask" ? DS.accent : .clear, in: RoundedRectangle(cornerRadius: DS.controlRadius))
-                                .contentShape(Rectangle())
-                        }.buttonStyle(PressableStyle()).help(item.label).accessibilityLabel(item.label).staggeredAppear(index)
-                        if index + 1 < actions.count { Spacer(minLength: 0) }
+                GlassGroup(spacing: DS.xs) {
+                    HStack(spacing: 0) {
+                        ForEach(Array(actions.enumerated()), id: \.element) { index, id in
+                            let item = button(id)
+                            ThumbnailGlassButton(icon: item.icon, label: item.label, active: active && id == "ask", perform: item.perform)
+                                .staggeredAppear(index)
+                            if index + 1 < actions.count { Spacer(minLength: 0) }
+                        }
                     }
-                }.padding(DS.xs).modifier(GlassSurface(radius: DS.smallRadius)).padding(DS.sm)
-                    .transition(DS.Motion.reveal(from: .bottom, reduceMotion: reduced))
+                    .padding(DS.xs)
+                    .modifier(GlassSurface(radius: DS.smallRadius + DS.xs, interactive: true))
+                }
+                .padding(DS.sm)
+                .transition(DS.Motion.reveal(from: .bottom, reduceMotion: reduced))
             } else {
-                HStack { Tag("\(capture.image.width) × \(capture.image.height)").background(DS.panel(scheme), in: Capsule()); Spacer() }.padding(DS.sm)
+                HStack {
+                    Text(verbatim: "\(capture.image.width) × \(capture.image.height)").font(DS.mono)
+                        .padding(.horizontal, DS.sm).frame(height: DS.xl - DS.xs)
+                        .modifier(GlassSurface(radius: DS.pill))
+                    Spacer()
+                }.padding(DS.sm)
             }
         }
         .onHover { hovering = $0 }

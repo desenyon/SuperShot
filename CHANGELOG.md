@@ -2,6 +2,44 @@
 
 All notable changes to SuperShot. Versions follow `CFBundleShortVersionString`; build numbers follow `CFBundleVersion`.
 
+## 0.1.1 (build 8) · 2026-11-18
+
+### Fixed
+
+- **Ask with ChatGPT failed on every question** when your Codex config defined MCP servers. SuperShot launched Codex with `-c mcp_servers={}` to switch them off, but Codex merges `-c` overrides into your config rather than replacing it, so the servers still started and SuperShot's safety check refused to send. Ask now reads your configured servers with `config/read` and disables each one for the conversation's own thread. Your Codex config is never written. The safety check still refuses to send if any server is live or exposes tools, and accepts servers Codex reports as `disabled`.
+- Codex exits when asked to disable a feature it does not know. SuperShot now reads `codex features list` and disables only features your installed version has, so other Codex versions start cleanly.
+- The Ask header's provider pill lost its capsule and dropdown caret; it is a proper menu again.
+
+### Ask
+
+- **Solve, Explain, Suggest, Improve** sit above the typing bar. Each has its own icon and a full prompt; one tap asks right away and includes anything you already typed. Your bubble shows the action's name and your note instead of the whole prompt. Cancelling the upload confirmation puts back only what you typed.
+- A "What would you like to know?" prompt in empty conversations, and a "looking at your capture…" indicator with animated dots until the first words arrive.
+- The provider pill switches between ChatGPT and Claude.
+- Suggestion lists left at 0.1.0's defaults change to the four new actions automatically. Custom suggestions are kept and still work.
+
+### Liquid Glass
+
+- **The bar after you select an area is real Liquid Glass.** Capture is its own accent glass button beside a glass group holding Copy, Save, Edit, Pin, Text, and Ask; the pieces refract the frozen screen and merge like a macOS toolbar. Cells fill their icon and gain a soft wash on hover, and the bar springs in when a selection finishes.
+- The quick-access thumbnail's hover bar and its size tag are glass, with hover washes and an accent Ask button while its chat is open.
+- `GlassSurface` gained accent-tinted and interactive variants, and `GlassGroup` blends neighboring glass shapes. Tinted glass carries a solid tint layer so primary controls stay legible on any background. Solid chrome, Reduce Transparency, and offscreen renders keep their opaque fallback.
+
+### Pins
+
+- **Unlocking a pin no longer needs the menu bar.** Hover a locked pin and a glass badge says "Hold ⌥ to unlock". Hold the key and the pin accepts clicks; the badge becomes an accent **Unlock** button. Release the key and clicks pass through again. Unlock All Pins remains in the menu.
+- Settings → Pins & previews → Click-through lock chooses the unlock key: Option, Command, Control, or Shift.
+- The watch uses no extra permission: it reads the pointer and modifier keys only while a pin is locked, about 15 times a second, and re-renders a pin only when its state changes.
+
+### Design
+
+- The menu bar logo is smaller: the glyph spans about 13 pt of its 18 pt slot, with a slightly heavier stroke for crispness.
+- New Phosphor icons for the quick actions: wrench, book, lightbulb, and trend-up.
+
+### Verification and tooling
+
+- `SuperShot --live-preview <dir> <fixture>` (from the signed bundle) shows chosen surfaces in real windows for about a second each and captures them with ScreenCaptureKit, so Liquid Glass can be checked; offscreen previews cannot render glass. Captures of this release are in `docs/verification/0.1.1-glass/`.
+- Opt-in live tests run real Ask turns through the signed-in Codex: `SUPERSHOT_LIVE_ASK=1 scripts/test.sh --filter Live` (add `SUPERSHOT_LIVE_CLAUDE=1` for Claude Code). They passed for this release and are skipped in normal runs.
+- 127 background tests across 11 targets (up from 119), with new coverage for the MCP fix, feature-flag parsing, quick actions, suggestion migration, and the pin unlock preference.
+
 ## 0.1.0 (build 7) · 2026-11-18
 
 ### New: Ask about a capture

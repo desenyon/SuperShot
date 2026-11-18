@@ -29,6 +29,13 @@ public enum ThumbnailCorner: String, Codable, CaseIterable, Sendable {
     public var isTop: Bool { self == .topLeft || self == .topRight }
 }
 
+/// The key that makes a locked pin clickable while held over it.
+public enum PinUnlockKey: String, Codable, CaseIterable, Sendable {
+    case option, command, control, shift
+    public var symbol: String { switch self { case .option: "⌥"; case .command: "⌘"; case .control: "⌃"; case .shift: "⇧" } }
+    public var title: String { "\(symbol) \(rawValue.capitalized)" }
+}
+
 public struct FloatingPreferences: Codable, Equatable, Sendable {
     public var thumbnailCorner: ThumbnailCorner = .bottomRight
     public var thumbnailSeconds: Int = 0
@@ -37,7 +44,24 @@ public struct FloatingPreferences: Codable, Equatable, Sendable {
     public var pinOpacity: Double = 1
     public var pinAllSpaces = true
     public var pinShadow = true
+    public var pinUnlockKey: PinUnlockKey = .option
     public init() {}
+    private enum CodingKeys: String, CodingKey {
+        case thumbnailCorner, thumbnailSeconds, thumbnailWidth, pinSize, pinOpacity, pinAllSpaces, pinShadow, pinUnlockKey
+    }
+    // Every field decodes optionally so preferences saved by older versions keep their values.
+    public init(from decoder: Decoder) throws {
+        self.init()
+        let v = try decoder.container(keyedBy: CodingKeys.self)
+        thumbnailCorner = try v.decodeIfPresent(ThumbnailCorner.self, forKey: .thumbnailCorner) ?? thumbnailCorner
+        thumbnailSeconds = try v.decodeIfPresent(Int.self, forKey: .thumbnailSeconds) ?? thumbnailSeconds
+        thumbnailWidth = try v.decodeIfPresent(Double.self, forKey: .thumbnailWidth) ?? thumbnailWidth
+        pinSize = try v.decodeIfPresent(Double.self, forKey: .pinSize) ?? pinSize
+        pinOpacity = try v.decodeIfPresent(Double.self, forKey: .pinOpacity) ?? pinOpacity
+        pinAllSpaces = try v.decodeIfPresent(Bool.self, forKey: .pinAllSpaces) ?? pinAllSpaces
+        pinShadow = try v.decodeIfPresent(Bool.self, forKey: .pinShadow) ?? pinShadow
+        pinUnlockKey = (try? v.decodeIfPresent(PinUnlockKey.self, forKey: .pinUnlockKey)) ?? .option
+    }
     public var isValid: Bool {
         [0, 5, 10, 20, 30].contains(thumbnailSeconds) && (200...360).contains(thumbnailWidth)
             && (240...1000).contains(pinSize) && (0.2...1).contains(pinOpacity)
@@ -56,7 +80,10 @@ public struct AssistantPreferences: Codable, Equatable, Sendable {
     public var keepConversations = true
     /// Suggestion chips shown under a new conversation, editable in Settings.
     public var suggestions: [String] = AssistantPreferences.defaultSuggestions
-    public static let defaultSuggestions = ["Explain this", "Summarize", "What should I do next?", "Write alt text"]
+    /// The one-tap actions above the typing bar. Built-in titles carry a full prompt (see `AskQuickAction`).
+    public static let defaultSuggestions = ["Solve", "Explain", "Suggest", "Improve"]
+    /// 0.1.0's defaults, replaced on load when the user never changed them.
+    static let legacyDefaultSuggestions = ["Explain this", "Summarize", "What should I do next?", "Write alt text"]
     public init() {}
     public init(from decoder: Decoder) throws {
         self.init()
@@ -67,7 +94,8 @@ public struct AssistantPreferences: Codable, Equatable, Sendable {
         includeRecognizedText = try v.decodeIfPresent(Bool.self, forKey: .includeRecognizedText) ?? true
         redactBeforeSending = try v.decodeIfPresent(Bool.self, forKey: .redactBeforeSending) ?? false
         keepConversations = try v.decodeIfPresent(Bool.self, forKey: .keepConversations) ?? true
-        let saved = try v.decodeIfPresent([String].self, forKey: .suggestions) ?? Self.defaultSuggestions
+        var saved = try v.decodeIfPresent([String].self, forKey: .suggestions) ?? Self.defaultSuggestions
+        if saved == Self.legacyDefaultSuggestions { saved = Self.defaultSuggestions }
         var seen = Set<String>()
         suggestions = saved.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && seen.insert($0).inserted }

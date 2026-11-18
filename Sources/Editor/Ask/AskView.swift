@@ -53,11 +53,19 @@ public struct AskView: View {
     private var header: some View {
         HStack(spacing: DS.sm) {
             Text("Ask").font(DS.title)
-            HStack(spacing: DS.xs) {
-                Icon(provider == .chatgpt ? "aperture" : "sparkle", size: DS.md)
-                Text(provider.title)
-            }.font(DS.caption).foregroundStyle(.secondary)
-                .padding(.horizontal, DS.sm).padding(.vertical, DS.xs).background(DS.card(scheme), in: Capsule())
+            Menu {
+                Button("ChatGPT") { model.switchProvider(.chatgpt) }.disabled(provider == .chatgpt)
+                Button("Claude") { model.switchProvider(.claude) }.disabled(provider == .claude)
+            } label: {
+                HStack(spacing: DS.xs) {
+                    Icon(provider == .chatgpt ? "aperture" : "sparkle", size: DS.md)
+                    Text(provider.title)
+                    Icon("caret-down", weight: .bold, size: DS.sm + DS.xs / 2)
+                }.font(DS.caption).foregroundStyle(.secondary)
+                    .padding(.horizontal, DS.sm).padding(.vertical, DS.xs).background(DS.card(scheme), in: Capsule())
+                    .contentShape(Capsule())
+            }.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                .accessibilityLabel("Provider: \(provider.title)").help("Switch provider")
             Spacer()
             Menu {
                 if let openEditor { Button("Open in editor") { _ = openEditor() }; Divider() }
@@ -77,6 +85,7 @@ public struct AskView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.lg) {
                     contextCard
+                    if model.messages.isEmpty { intro.transition(DS.Motion.rise(reduceMotion: reduced)) }
                     ForEach(model.messages) { message in
                         messageView(message).transition(DS.Motion.rise(reduceMotion: reduced))
                     }
@@ -84,6 +93,7 @@ public struct AskView: View {
                 }
                 .padding(.horizontal, DS.lg).padding(.bottom, DS.sm)
                 .animation(DS.Motion.arrive(reduced), value: model.messages.count)
+                .animation(DS.Motion.gentle(reduced), value: model.messages.isEmpty)
             }
             .onScrollPhaseChange { _, phase, context in
                 if phase == .idle {
@@ -129,11 +139,19 @@ public struct AskView: View {
                 Spacer(minLength: DS.xxl)
                 VStack(alignment: .leading, spacing: DS.xs) {
                     ForEach(Array(message.attachments.enumerated()), id: \.offset) { _, label in regionChip(label) }
-                    Text(message.text).font(DS.body).textSelection(.enabled)
+                    if let action = message.action {
+                        Label { Text(action.title).font(DS.emphasis) } icon: { Icon(action.icon, weight: .fill, size: DS.icon) }
+                            .foregroundStyle(DS.actionInk(scheme))
+                        if !message.typed.isEmpty { Text(message.typed).font(DS.body).textSelection(.enabled) }
+                    } else {
+                        Text(message.text).font(DS.body).textSelection(.enabled)
+                    }
                 }.padding(.horizontal, DS.md).padding(.vertical, DS.sm)
                     .background(DS.hover(scheme), in: UnevenRoundedRectangle(topLeadingRadius: DS.Ask.bubble, bottomLeadingRadius: DS.Ask.bubble,
                                                                             bottomTrailingRadius: DS.xs, topTrailingRadius: DS.Ask.bubble))
             }
+        } else if message.status == .streaming && message.text.isEmpty {
+            AskThinking(provider: provider.title).transition(DS.Motion.pop(reduceMotion: reduced))
         } else if !message.text.isEmpty || message.status == .streaming {
             VStack(alignment: .leading, spacing: DS.sm) {
                 AskReply(text: message.text, streaming: message.status == .streaming, copy: editor.copyText)
@@ -162,15 +180,35 @@ public struct AskView: View {
             .foregroundStyle(DS.actionInk(scheme)).background(DS.accent.opacity(DS.subtleOpacity), in: RoundedRectangle(cornerRadius: DS.controlRadius))
     }
 
+    private var actions: [AskQuickAction] { model.options.suggestions.map(AskQuickAction.named) }
+
+    private var intro: some View {
+        VStack(alignment: .leading, spacing: DS.xs) {
+            Text("What would you like to know?").font(DS.emphasis)
+            Text("Pick an action below, or type a question. Ask sees this capture\(model.options.includeRecognizedText ? " and its text" : "").")
+                .font(DS.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }.padding(.top, DS.xs).frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var suggestions: some View {
-        AskChipLayout {
-            ForEach(Array(model.options.suggestions.enumerated()), id: \.offset) { i, text in
-                Button { model.draft = text; focused = true } label: {
-                    Text(text).font(DS.caption).lineLimit(1).padding(.horizontal, DS.md).padding(.vertical, DS.sm)
-                        .background(DS.card(scheme), in: Capsule()).overlay(Capsule().strokeBorder(DS.hairline(scheme)))
-                }.buttonStyle(PressableStyle()).staggeredAppear(i)
+        Group {
+            if actions.count <= 4 {
+                HStack(spacing: DS.xs) {
+                    ForEach(Array(actions.enumerated()), id: \.element.id) { i, action in actionButton(action, index: i, fill: true) }
+                }
+            } else {
+                AskChipLayout {
+                    ForEach(Array(actions.enumerated()), id: \.element.id) { i, action in actionButton(action, index: i, fill: false) }
+                }
             }
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, DS.lg).padding(.bottom, DS.sm)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, DS.md).padding(.bottom, DS.sm)
+    }
+
+    private func actionButton(_ action: AskQuickAction, index: Int, fill: Bool) -> some View {
+        AskActionButton(action: action, fill: fill) { model.ask(action, document: editor.current) }
+            .staggeredAppear(index)
+            .help(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? action.prompt : "\(action.title) with your note")
     }
 
     private var composer: some View {
@@ -185,7 +223,7 @@ public struct AskView: View {
                     }
                 }.scrollIndicators(.hidden)
             }
-            TextField(model.messages.isEmpty ? "Ask about this capture…" : "Ask a follow-up…", text: $model.draft, axis: .vertical)
+            TextField(model.messages.isEmpty ? "Ask anything about this capture…" : "Ask a follow-up…", text: $model.draft, axis: .vertical)
                 .lineLimit(1...5).textFieldStyle(.plain).font(DS.body).focused($focused)
                 .accessibilityLabel("Question about this capture").disabled(model.awaitingConsent)
             HStack {
@@ -308,6 +346,58 @@ public struct AskView: View {
         else if model.awaitingConsent { model.cancelConsent() }
         else if !model.draft.isEmpty { model.draft = "" }
         else { close() }
+    }
+}
+
+/// A quick action: icon over title in a soft tile, lifting on hover.
+private struct AskActionButton: View {
+    let action: AskQuickAction
+    let fill: Bool
+    let perform: () -> Void
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    @Environment(\.isEnabled) private var enabled
+    @LocalState private var hovering = false
+    var body: some View {
+        Button(action: perform) {
+            HStack(spacing: DS.xs) {
+                Icon(action.icon, weight: hovering ? .fill : .regular, size: DS.icon)
+                    .foregroundStyle(hovering && enabled ? DS.actionInk(scheme) : Color.secondary)
+                Text(action.title).font(DS.caption.weight(.semibold)).lineLimit(1)
+            }
+            .padding(.horizontal, DS.sm).frame(maxWidth: fill ? .infinity : nil).frame(height: DS.Ask.send)
+            .background(hovering && enabled ? DS.hover(scheme) : DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.controlRadius + DS.xs / 2, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DS.controlRadius + DS.xs / 2, style: .continuous)
+                .strokeBorder(hovering && enabled ? DS.accent.opacity(DS.outlineOpacity * 2) : DS.hairline(scheme)))
+            .contentShape(RoundedRectangle(cornerRadius: DS.controlRadius + DS.xs / 2))
+            .opacity(enabled ? 1 : DS.mutedOpacity)
+        }
+        .buttonStyle(PressableStyle())
+        .onHover { over in withAnimation(DS.Motion.hover(reduced)) { hovering = over } }
+        .accessibilityLabel(action.title)
+    }
+}
+
+/// Shown while a reply has started but no words have arrived yet.
+private struct AskThinking: View {
+    let provider: String
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    @LocalState private var phase = false
+    var body: some View {
+        HStack(spacing: DS.sm) {
+            HStack(spacing: DS.xs) {
+                ForEach(0..<3, id: \.self) { i in
+                    Circle().fill(Color.secondary).frame(width: DS.xs + DS.xs / 2, height: DS.xs + DS.xs / 2)
+                        .opacity(phase ? 1 : 0.3).scaleEffect(phase && !reduced ? 1 : 0.7)
+                        .animation(reduced || DS.rendersOffscreen ? nil : DS.Motion.gentle(false).repeatForever(autoreverses: true)
+                            .delay(Double(i) * DS.Motion.stagger(4, reduceMotion: false)), value: phase)
+                }
+            }
+            Text("\(provider) is looking at your capture…").font(DS.caption).foregroundStyle(.secondary)
+        }
+        .padding(.vertical, DS.xs)
+        .onAppear { phase = true }
+        .accessibilityElement(children: .ignore).accessibilityLabel("\(provider) is thinking")
     }
 }
 

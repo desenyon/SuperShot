@@ -9,6 +9,13 @@ if let index = CommandLine.arguments.firstIndex(of: "--render-previews"), Comman
                         fixture: URL(fileURLWithPath: CommandLine.arguments[index + 2]))
     exit(0)
 }
+if let index = CommandLine.arguments.firstIndex(of: "--live-preview"), CommandLine.arguments.count > index + 2 {
+    // Shows scenes in real windows for about a second each and captures them, so Liquid Glass can be checked.
+    app.setActivationPolicy(.accessory)
+    let output = URL(fileURLWithPath: CommandLine.arguments[index + 1]), fixture = URL(fileURLWithPath: CommandLine.arguments[index + 2])
+    Task { @MainActor in await LiveRenderer.run(output: output, fixture: fixture); exit(0) }
+    app.run()
+}
 if let index = CommandLine.arguments.firstIndex(of: "--render-app-icon"), CommandLine.arguments.count > index + 1 {
     // Draws the app icon from the same Brand code the app uses, for scripts/bundle.sh.
     app.setActivationPolicy(.prohibited)

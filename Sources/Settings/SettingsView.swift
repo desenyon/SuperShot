@@ -179,7 +179,7 @@ public struct SettingsView: View {
                     Icon(hasScreenAccess ? "shield-check" : "shield-warning", size: DS.iconSize)
                     VStack(alignment: .leading, spacing: DS.xs) {
                         Text(hasScreenAccess ? "Screen access on" : "Screen access off").font(S.detail)
-                        Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0")")
+                        Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.1")")
                             .font(S.mono).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 0)
@@ -379,10 +379,14 @@ public struct SettingsView: View {
                 separator
                 row("Window shadow") { toggle("Pin window shadow", $store.preferences.floating.pinShadow) }
             }
-            group("Click-through lock", index: 2, footer: "Locked pins let you click the app behind them. Choose Unlock Pins in the SuperShot menu to interact with them again.") {
-                HStack(spacing: DS.sm) {
-                    Icon("lock").foregroundStyle(.secondary)
-                    Text("Hover over a pin and choose the lock button").font(S.label)
+            group("Click-through lock", index: 2, footer: "Locked pins let clicks reach the app behind them. Hover a locked pin to see how to unlock it, hold the unlock key over it, then click Unlock. Unlock All Pins in the SuperShot menu unlocks every pin at once.") {
+                row("Lock a pin", "Hover a pin and choose the lock button") {
+                    Icon("lock-simple", size: DS.iconSize).foregroundStyle(.secondary)
+                }
+                separator
+                row("Unlock key", "Hold it while the pointer is over a locked pin") {
+                    SettingsMenu(label: "Unlock key", options: PinUnlockKey.allCases.map { ($0, $0.title) },
+                                 selection: $store.preferences.floating.pinUnlockKey)
                 }
             }
         }

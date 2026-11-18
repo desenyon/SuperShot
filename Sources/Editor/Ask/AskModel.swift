@@ -30,11 +30,43 @@ public struct AskMessage: Identifiable, Equatable, Sendable {
     public enum Status: Sendable { case streaming, done, failed }
     public let id = UUID()
     public let role: Role
+    /// What the model receives.
     public var text: String
     public var attachments: [String]
     public var status: Status
+    /// A quick action shown in the bubble instead of its full prompt, with what the user typed alongside it.
+    public var action: AskQuickAction?
+    public var typed: String = ""
     public init(_ role: Role, _ text: String, attachments: [String] = [], status: Status = .done) {
         self.role = role; self.text = text; self.attachments = attachments; self.status = status
+    }
+}
+
+/// One-tap requests above the typing bar. The four built-ins carry a full prompt;
+/// custom suggestions from Settings send their own text.
+public struct AskQuickAction: Equatable, Sendable, Identifiable {
+    public let title: String
+    public let icon: String
+    public let prompt: String
+    public var id: String { title }
+    public static let builtIn: [AskQuickAction] = [
+        AskQuickAction(title: "Solve", icon: "wrench",
+                       prompt: "Solve the problem shown in this screenshot. If something is broken or shows an error, say what causes it, then give the fix as short numbered steps."),
+        AskQuickAction(title: "Explain", icon: "book-open-text",
+                       prompt: "Explain what this screenshot shows: what it is, what the important parts mean, and anything I should notice."),
+        AskQuickAction(title: "Suggest", icon: "lightbulb",
+                       prompt: "Suggest the most useful next steps based on what this screenshot shows. Keep it to the few that matter most."),
+        AskQuickAction(title: "Improve", icon: "trend-up",
+                       prompt: "Suggest concrete improvements to what is shown here, such as wording, design, layout, or code. Lead with the most impactful change.")
+    ]
+    public static func named(_ title: String) -> AskQuickAction {
+        builtIn.first { $0.title.caseInsensitiveCompare(title) == .orderedSame }
+            ?? AskQuickAction(title: title, icon: "sparkle", prompt: title)
+    }
+    /// The prompt to send, folding in anything the user already typed.
+    public func request(with typed: String) -> String {
+        let note = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        return note.isEmpty ? prompt : prompt + "\n\nThe user added: " + note
     }
 }
 
@@ -118,9 +150,19 @@ public struct AskMessage: Identifiable, Equatable, Sendable {
     }
     public func removeRegion(_ id: UUID) { regions.removeAll { $0.id == id } }
 
-    public func send(document: CaptureDocument) {
-        guard canSend else { return }
-        let question = AskMessage(.user, draft.trimmingCharacters(in: .whitespacesAndNewlines), attachments: regions.map(\.label))
+    /// Sends a quick action, combined with anything already typed.
+    public func ask(_ action: AskQuickAction, document: CaptureDocument) {
+        let typed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        draft = action.request(with: typed)
+        send(document: document, action: action, typed: typed)
+    }
+
+    public func send(document: CaptureDocument) { send(document: document, action: nil, typed: "") }
+
+    private func send(document: CaptureDocument, action: AskQuickAction?, typed: String) {
+        guard canSend else { if action != nil { draft = typed }; return }
+        var question = AskMessage(.user, draft.trimmingCharacters(in: .whitespacesAndNewlines), attachments: regions.map(\.label))
+        question.action = action; question.typed = typed
         // The old provider's unanswered turn remains visible until its replacement is submitted.
         if let id = resubmittedMessageID {
             messages.removeAll { $0.id == id }
@@ -303,7 +345,7 @@ public struct AskMessage: Identifiable, Equatable, Sendable {
     public func cancelConsent() {
         guard awaitingConsent, let pending else { return }
         inspection?.cancel(); inspection = nil; sensitiveCount = nil
-        draft = pending.message.text; regions = pending.regions
+        draft = pending.message.action == nil ? pending.message.text : pending.message.typed; regions = pending.regions
         messages.removeAll { $0.id == pending.message.id }
         self.pending = nil; awaitingConsent = false
     }

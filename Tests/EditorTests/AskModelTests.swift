@@ -252,3 +252,28 @@ extension AskModelTests {
         #expect(session.state.withLock { $0.prompts.first?.contains("Earlier answer") == true })
     }
 }
+
+extension AskModelTests {
+    @Test func quickActionsSendTheirPromptAndShowTheirTitle() async throws {
+        let doc = try fixture(), session = ScriptedSession(), model = await make(session)
+        model.draft = "the login form"
+        model.ask(.named("Solve"), document: doc)
+        try await wait { session.state.withLock { $0.prompts.count == 1 } }
+        let prompt = try #require(session.state.withLock { $0.prompts.first })
+        #expect(prompt.hasPrefix(AskQuickAction.named("Solve").prompt) && prompt.hasSuffix("The user added: the login form"))
+        let bubble = try #require(model.messages.first)
+        #expect(bubble.action?.title == "Solve" && bubble.typed == "the login form" && model.draft.isEmpty)
+        #expect(AskQuickAction.builtIn.map(\.title) == ["Solve", "Explain", "Suggest", "Improve"])
+        #expect(AskQuickAction.named("explain").icon == "book-open-text")
+        let custom = AskQuickAction.named("Write alt text")
+        #expect(custom.prompt == "Write alt text" && custom.request(with: "") == "Write alt text")
+    }
+    @Test func cancellingConsentForAnActionRestoresOnlyWhatWasTyped() async throws {
+        let doc = try fixture(), session = ScriptedSession(), model = await make(session, consent: true)
+        model.draft = "the chart"
+        model.ask(.named("Explain"), document: doc)
+        #expect(model.awaitingConsent)
+        model.cancelConsent()
+        #expect(model.draft == "the chart" && model.messages.isEmpty)
+    }
+}

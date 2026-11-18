@@ -5,6 +5,11 @@ import Settings
 
 @MainActor final class PinController {
     private var windows: [PinWindow] = []
+    /// Held over a locked pin, this key makes it clickable so it can be unlocked.
+    var unlockKey: PinUnlockKey = .option { didSet { windows.forEach { $0.state?.unlockKey = unlockKey } } }
+    /// Polls the pointer and modifier keys only while some pin is locked. Reading `NSEvent.modifierFlags`
+    /// needs no Accessibility or Input Monitoring permission, unlike a global key monitor.
+    private var unlockWatch: Timer?
     var hasVisiblePins: Bool { windows.contains { $0.isVisible } }
     func pin(_ image: CGImage, preferences: FloatingPreferences) {
         let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main
@@ -17,17 +22,43 @@ import Settings
         window.isMovableByWindowBackground = false; window.acceptsMouseMovedEvents = true
         window.collectionBehavior = preferences.pinAllSpaces ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.fullScreenAuxiliary]
         let state = PinState(image: image, window: window, initialSize: size, opacity: preferences.pinOpacity)
+        state.unlockKey = unlockKey
+        state.onLockChange = { [weak self] in self?.updateUnlockWatch() }
         window.state = state
         let host = NSHostingView(rootView: PinView(state: state)); host.sizingOptions = []; window.contentView = host
         window.setContentSize(size)
         window.setFrameOrigin(CGPoint(x: available.midX - size.width / 2, y: available.midY - size.height / 2))
-        window.onClose = { [weak self, weak window] in self?.windows.removeAll { $0 === window } }
+        window.onClose = { [weak self, weak window] in self?.windows.removeAll { $0 === window }; self?.updateUnlockWatch() }
         windows.append(window)
         host.wantsLayer = true
         window.orderFrontRegardless()
         DS.Motion.present(window, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
     }
     func unlockAll() { windows.forEach { $0.state?.locked = false } }
+
+    private func updateUnlockWatch() {
+        let anyLocked = windows.contains { $0.state?.locked == true }
+        if anyLocked, unlockWatch == nil {
+            let timer = Timer(timeInterval: 1.0 / 15, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.checkUnlock() } }
+            RunLoop.main.add(timer, forMode: .common); unlockWatch = timer
+        } else if !anyLocked {
+            unlockWatch?.invalidate(); unlockWatch = nil
+        }
+    }
+    private func checkUnlock() {
+        let pointer = NSEvent.mouseLocation, flags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let held = flags.contains(Self.flag(unlockKey))
+        for window in windows {
+            guard let state = window.state, state.locked else { continue }
+            let over = window.isVisible && window.frame.contains(pointer)
+            if state.hinting != over { state.hinting = over }
+            // Assign only on change: an @Observable write re-renders the pin even when the value is the same.
+            if state.peeking != (over && held) { state.peeking = over && held }
+        }
+    }
+    static func flag(_ key: PinUnlockKey) -> NSEvent.ModifierFlags {
+        switch key { case .option: .option; case .command: .command; case .control: .control; case .shift: .shift }
+    }
 }
 
 @MainActor private final class PinWindow: NSWindow {
@@ -55,8 +86,16 @@ import Settings
     weak var window: NSWindow?
     let initialSize: CGSize
     var opacity: Double
-    var locked = false { didSet { window?.ignoresMouseEvents = locked; hovering = false } }
+    var locked = false {
+        didSet { window?.ignoresMouseEvents = locked; hovering = false; hinting = false; peeking = false; onLockChange?() }
+    }
     var hovering = false
+    /// The pointer is over this locked pin: show how to unlock it.
+    var hinting = false
+    /// The unlock key is held over this locked pin: it accepts clicks until the key is released.
+    var peeking = false { didSet { if locked, peeking != oldValue { window?.ignoresMouseEvents = !peeking } } }
+    var unlockKey: PinUnlockKey = .option
+    @ObservationIgnored var onLockChange: (() -> Void)?
     init(image: CGImage, window: NSWindow? = nil, initialSize: CGSize? = nil, opacity: Double = 1) {
         self.image = image; self.window = window
         self.initialSize = initialSize ?? CGSize(width: image.width, height: image.height); self.opacity = opacity
@@ -67,6 +106,34 @@ import Settings
         let frame = window.frame
         let size = PinGeometry.fittedSize(image: initialSize, longestEdge: max(initialSize.width, initialSize.height), available: window.screen?.visibleFrame.size ?? initialSize)
         window.setFrame(CGRect(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2, width: size.width, height: size.height), display: true)
+    }
+}
+
+/// The badge on a locked pin. It explains the unlock key on hover and becomes an Unlock button while the key is held.
+private struct PinLockBadge: View {
+    @Bindable var state: PinState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        Button { if state.peeking { state.locked = false } } label: {
+            HStack(spacing: DS.xs + DS.xs / 2) {
+                Icon(state.peeking ? "lock-simple-open" : "lock-simple", weight: .fill, size: DS.icon)
+                    .contentTransition(.opacity)
+                if state.peeking {
+                    Text("Unlock").font(DS.caption.weight(.semibold)).transition(DS.Motion.pop(reduceMotion: reduceMotion))
+                } else if state.hinting {
+                    Text("Hold \(state.unlockKey.symbol) to unlock").font(DS.caption).transition(DS.Motion.pop(reduceMotion: reduceMotion))
+                }
+            }
+            .foregroundStyle(state.peeking ? DS.onAccent : Color.primary)
+            .padding(.horizontal, state.peeking || state.hinting ? DS.md : DS.sm).frame(height: DS.xl + DS.xs)
+            .modifier(GlassSurface(radius: DS.pill, tint: state.peeking ? DS.accent : nil, interactive: state.peeking))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(PressableStyle())
+        .animation(DS.Motion.snappy(reduceMotion), value: state.peeking)
+        .animation(DS.Motion.snappy(reduceMotion), value: state.hinting)
+        .accessibilityLabel(state.peeking ? "Unlock pin" : "Pin locked. Hold \(state.unlockKey.title) over it, then choose Unlock.")
+        .help(state.peeking ? "Unlock this pin" : "Hold \(state.unlockKey.symbol) to unlock")
     }
 }
 
@@ -84,15 +151,13 @@ struct PinView: View {
         .overlay(RoundedRectangle(cornerRadius: DS.controlRadius).strokeBorder(Color.primary.opacity(DS.outlineOpacity)).allowsHitTesting(false))
         .overlay(alignment: .top) {
             if state.locked {
-                Icon("lock-simple", weight: .fill, size: DS.icon)
-                    .padding(DS.sm).modifier(GlassSurface(radius: DS.pill)).padding(DS.sm)
-                    .accessibilityLabel("Pin locked. Unlock from the SuperShot menu.")
+                PinLockBadge(state: state).padding(DS.sm)
                     .transition(DS.Motion.pop(reduceMotion: reduceMotion))
             } else if state.hovering || adjustingOpacity {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: DS.insetStroke) {
                         IconButton("circle-half", label: "Pin opacity", selected: adjustingOpacity) { adjustingOpacity.toggle() }
-                        IconButton("lock-simple-open", label: "Lock pin. Unlock from the SuperShot menu.") { state.locked = true }
+                        IconButton("lock-simple-open", label: "Lock pin. Clicks pass through until you hold \(state.unlockKey.symbol) over it and choose Unlock.") { state.locked = true }
                         IconButton("copy", label: "Copy image") { state.copy() }
                         IconButton("x", label: "Close pin · ⌘W") { state.window?.close() }
                     }.fixedSize()

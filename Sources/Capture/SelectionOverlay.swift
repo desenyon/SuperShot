@@ -194,12 +194,13 @@ private final class OverlayWindow: NSWindow { override var canBecomeKey: Bool { 
             bar.isHidden = true
             addSubview(bar); actionBar = bar
         }
-        let size = bar.frame.size
+        // Lay out the visible glass, then offset by the transparent margin around it.
+        let inset = bar.margin, size = CGSize(width: bar.frame.width - inset * 2, height: bar.frame.height - inset * 2)
         let x = max(DS.sm, min(selection.midX - size.width / 2, bounds.width - size.width - DS.sm))
         var y = selection.maxY + DS.md
         if y + size.height + DS.sm > bounds.height { y = selection.minY - size.height - DS.md - DS.badgeHeight - DS.sm }
         if y < DS.sm { y = max(DS.sm, selection.maxY - size.height - DS.md) }
-        bar.setFrameOrigin(CGPoint(x: x, y: y))
+        bar.setFrameOrigin(CGPoint(x: x - inset, y: y - inset))
         if bar.isHidden {
             bar.isHidden = false
             if !isPreview { bar.reveal() }
@@ -378,43 +379,59 @@ private final class OverlayWindow: NSWindow { override var canBecomeKey: Bool { 
 }
 
 /// The HUD has its own backing layer. Its entrance never invalidates the frozen screen.
+/// It is real Liquid Glass: SwiftUI glass in this overlay window refracts the frozen screen beneath it.
 @MainActor private final class AreaActionBar: NSView {
     init(actions: [OverlayAction], labels: Bool, perform: @escaping (OverlayAction) -> Void) {
-        let size = CGSize(width: CGFloat(actions.count) * (labels ? DS.Ask.labeledCellWidth : DS.Ask.cell) + DS.sm,
-                          height: (labels ? DS.Ask.cell : DS.xxl) + DS.sm)
+        let host = NSHostingView(rootView: AreaActionBarView(actions: actions, labels: labels, perform: perform)
+            .environment(\.colorScheme, .dark))
+        host.sizingOptions = [.intrinsicContentSize]
+        let size = host.fittingSize
         super.init(frame: CGRect(origin: .zero, size: size))
         wantsLayer = true
-        layer?.shadowColor = DS.Ask.hudShadow.cgColor; layer?.shadowOpacity = 1
-        layer?.shadowRadius = DS.md; layer?.shadowOffset = CGSize(width: 0, height: -DS.xs)
-        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: DS.lg, cornerHeight: DS.lg, transform: nil)
-        let host = NSHostingView(rootView: HStack(spacing: 0) {
-            ForEach(actions, id: \.self) { action in
-                AreaActionCell(action: action, labels: labels) { perform(action) }
-            }
-        }.padding(DS.xs))
-        host.sizingOptions = []; host.frame = bounds; addSubview(host)
+        host.frame = bounds; host.autoresizingMask = [.width, .height]; addSubview(host)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let rect = bounds.insetBy(dx: DS.stroke / 2, dy: DS.stroke / 2)
-        let shape = NSBezierPath(roundedRect: rect, xRadius: DS.lg, yRadius: DS.lg)
-        DS.Ask.hud.setFill(); shape.fill()
-        DS.Ask.hudEdge.setStroke(); shape.lineWidth = DS.stroke; shape.stroke()
-        NSGraphicsContext.saveGraphicsState()
-        shape.addClip()
-        NSGradient(starting: DS.Ask.hudWash, ending: DS.Ask.hudWash.withAlphaComponent(0))?
-            .draw(in: CGRect(x: 0, y: bounds.maxY - DS.sm, width: bounds.width, height: DS.sm), angle: -90)
-        NSGraphicsContext.restoreGraphicsState()
-    }
+    /// The glass pieces sit inside a transparent margin; place the bar by its visible edges.
+    var margin: CGFloat { DS.Ask.hudMargin }
 
     func reveal() {
         let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         layer?.add(DS.Motion.caSpring("opacity", from: 0, to: 1, reduceMotion: reduced), forKey: "arrivalOpacity")
         guard !reduced else { return }
-        let transform = CATransform3DTranslate(CATransform3DMakeScale(0.96, 0.96, 1), 0, -DS.sm, 0)
+        let transform = CATransform3DTranslate(CATransform3DMakeScale(0.94, 0.94, 1), 0, -DS.sm, 0)
         layer?.add(DS.Motion.caSpring("transform", from: NSValue(caTransform3D: transform),
                                       to: NSValue(caTransform3D: CATransform3DIdentity), reduceMotion: false), forKey: "arrival")
+    }
+}
+
+/// Capture as its own accent-tinted glass button, the other outcomes grouped in a second glass piece.
+/// Inside one `GlassGroup` the two pieces merge at their edges like system toolbars.
+private struct AreaActionBarView: View {
+    let actions: [OverlayAction]
+    let labels: Bool
+    let perform: (OverlayAction) -> Void
+    var body: some View {
+        let others = actions.filter { $0 != .capture }
+        GlassGroup(spacing: DS.sm) {
+            HStack(spacing: DS.xs + DS.xs / 2) {
+                if actions.contains(.capture) {
+                    AreaActionCell(action: .capture, labels: labels) { perform(.capture) }
+                        .padding(DS.xs)
+                        .modifier(GlassSurface(radius: DS.Ask.hudRadius, tint: DS.accent, interactive: true))
+                }
+                if !others.isEmpty {
+                    HStack(spacing: DS.xs / 2) {
+                        ForEach(others, id: \.self) { action in
+                            AreaActionCell(action: action, labels: labels) { perform(action) }
+                        }
+                    }
+                    .padding(DS.xs)
+                    .modifier(GlassSurface(radius: DS.Ask.hudRadius, interactive: true))
+                }
+            }
+        }
+        .padding(DS.Ask.hudMargin)
+        .fixedSize()
     }
 }
 
@@ -428,15 +445,23 @@ private struct AreaActionCell: View {
         let primary = action == .capture
         Button(action: perform) {
             VStack(spacing: DS.xs / 2) {
-                Icon(action.symbol, weight: primary ? .fill : .regular, size: DS.radius)
-                if labels { Text(action.title).font(Font(DS.Ask.hudLabel)) }
+                Icon(action.symbol, weight: primary || hovering ? .fill : .regular, size: DS.iconSize + DS.xs / 2)
+                if labels { Text(action.title).font(Font(DS.Ask.hudLabel)).lineLimit(1) }
             }
-            .foregroundStyle(primary ? DS.onAccent : DS.white)
-            .frame(width: labels ? DS.Ask.labeledCellWidth : DS.Ask.cell, height: labels ? DS.Ask.cell : DS.xxl)
-            .background(primary ? DS.accent : hovering ? Color(nsColor: DS.Ask.hudWash) : .clear,
-                        in: RoundedRectangle(cornerRadius: DS.groupRadius))
-            .contentShape(Rectangle())
-        }.buttonStyle(PressableStyle()).accessibilityLabel(action.title).help(action.title)
+            .foregroundStyle(primary ? DS.onAccent : Color.primary.opacity(hovering ? 1 : 0.88))
+            .frame(width: labels ? DS.Ask.labeledCellWidth : DS.Ask.cell, height: labels ? DS.Ask.cell : DS.xxl - DS.xs)
+            .background {
+                if primary && hovering {
+                    RoundedRectangle(cornerRadius: DS.Ask.hudRadius - DS.xs, style: .continuous).fill(Color.white.opacity(DS.subtleOpacity))
+                } else if hovering && !primary {
+                    RoundedRectangle(cornerRadius: DS.Ask.hudRadius - DS.xs, style: .continuous).fill(Color(nsColor: DS.Ask.hudWash))
+                        .transition(.opacity)
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: DS.Ask.hudRadius - DS.xs))
+        }
+        .buttonStyle(PressableStyle())
+        .accessibilityLabel(action.title).help(action.title)
         .onHover { over in withAnimation(DS.Motion.hover(reduced)) { hovering = over } }
     }
 }

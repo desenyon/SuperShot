@@ -213,17 +213,45 @@ public struct GlassSurface: ViewModifier {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     private let radius: CGFloat
-    public init(radius: CGFloat = DS.radius) { self.radius = radius }
+    private let tint: Color?
+    private let interactive: Bool
+    /// `tint` colors the glass itself (for a primary control); `interactive` makes it respond to the pointer.
+    public init(radius: CGFloat = DS.radius, tint: Color? = nil, interactive: Bool = false) {
+        self.radius = radius; self.tint = tint; self.interactive = interactive
+    }
     public func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        if ThemeState.shared.chrome == .solid || DS.rendersOffscreen || reduceTransparency {
+        if DS.usesOpaqueChrome(reduceTransparency: reduceTransparency) {
             content
-                .background(DS.panel(scheme), in: shape)
-                .overlay(shape.strokeBorder(DS.hairline(scheme), lineWidth: DS.stroke))
+                .background(tint ?? DS.panel(scheme), in: shape)
+                .overlay(shape.strokeBorder(tint == nil ? DS.hairline(scheme) : Color.white.opacity(DS.outlineOpacity), lineWidth: DS.stroke))
                 .shadow(color: .black.opacity(scheme == .dark ? 0.45 : 0.14), radius: DS.md, y: DS.xs)
         } else {
-            content.glassEffect(.regular, in: shape)
+            // System glass tints only faintly; a solid tint layer inside the shape keeps primary controls legible on any backdrop.
+            content
+                .background { if let tint { shape.fill(tint.opacity(0.9)) } }
+                .glassEffect(Glass.regular.tint(tint).interactive(interactive), in: shape)
         }
+    }
+}
+
+public extension DS {
+    /// Opaque stand-ins replace system glass when the user chose solid chrome, asked for less transparency,
+    /// or when rendering offscreen, where glass has nothing to sample.
+    @MainActor static func usesOpaqueChrome(reduceTransparency: Bool) -> Bool {
+        ThemeState.shared.chrome == .solid || DS.rendersOffscreen || reduceTransparency
+    }
+}
+
+/// Lets neighbouring glass shapes blend into one another, as system Liquid Glass does in toolbars.
+public struct GlassGroup<Content: View>: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    private let spacing: CGFloat
+    private let content: Content
+    public init(spacing: CGFloat = DS.sm, @ViewBuilder content: () -> Content) { self.spacing = spacing; self.content = content() }
+    public var body: some View {
+        if DS.usesOpaqueChrome(reduceTransparency: reduceTransparency) { content }
+        else { GlassEffectContainer(spacing: spacing) { content } }
     }
 }
 

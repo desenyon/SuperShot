@@ -82,9 +82,10 @@ public enum Brand {
     public static func menuBarImage(size: CGFloat = 18) -> NSImage {
         let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
-            // Enlarge the glyph to fill the menu bar square, and keep the stroke legible at 18 pt.
-            drawGlyph(in: rect.insetBy(dx: -rect.width * 0.55, dy: -rect.height * 0.55), context: context,
-                      monochrome: CGColor(gray: 0, alpha: 1), weight: 0.85)
+            // The glyph spans about 13 pt of the 18 pt square, matching system menu bar icons; the stroke is
+            // thickened slightly so it stays crisp at that size.
+            drawGlyph(in: rect.insetBy(dx: -rect.width * 0.30, dy: -rect.height * 0.30), context: context,
+                      monochrome: CGColor(gray: 0, alpha: 1), weight: 1.15)
             return true
         }
         image.isTemplate = true

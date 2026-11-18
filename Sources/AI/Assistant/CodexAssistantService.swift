@@ -16,10 +16,10 @@ actor CodexAssistantService: AssistantService {
         if let starting { return try await starting.value }
         let task = Task { [runtime] in
             let tool = try await runtime.harness(.chatgpt)
-            let arguments = ["app-server", "--stdio", "-c", "mcp_servers={}", "-c", "plugins={}",
-                             "-c", "web_search=\"disabled\"", "-c", "model_provider=\"openai\""]
-                + ["plugins", "apps", "hooks", "codex_hooks", "shell_tool", "unified_exec", "code_mode",
-                   "multi_agent", "multi_agent_v2", "view_image", "standalone_web_search"].flatMap { ["--disable", $0] }
+            // Codex rejects unknown feature names, so only disable the ones this version has.
+            let known = Self.featureNames(try? await runtime.command(tool, ["features", "list"]).stdout)
+            let arguments = ["app-server", "--stdio", "-c", "web_search=\"disabled\"", "-c", "model_provider=\"openai\""]
+                + Self.disabledFeatures.filter { known?.contains($0) ?? true }.flatMap { ["--disable", $0] }
             let transport = try await runtime.launch(tool, arguments, AskDirectory())
             let client = CodexConnection(tool: tool, transport: transport)
             do { try await client.initialize(); return client }
@@ -30,6 +30,28 @@ actor CodexAssistantService: AssistantService {
         let result = try await task.value
         connection = result
         return result
+    }
+    /// Tool surfaces Ask never needs. MCP servers are disabled per thread in `CodexConnection.start`,
+    /// because a `-c` override merges with the user's config instead of replacing it.
+    static let disabledFeatures = ["plugins", "apps", "hooks", "shell_tool", "unified_exec", "code_mode", "multi_agent",
+                                   "multi_agent_v2", "view_image", "standalone_web_search", "browser_use",
+                                   "browser_use_external", "in_app_browser", "browser_annotation_api"]
+    /// Feature names from `codex features list` (first column), or nil when the list is unavailable.
+    static func featureNames(_ output: String?) -> Set<String>? {
+        guard let output else { return nil }
+        let names = output.split(separator: "\n").compactMap { $0.split(separator: " ", omittingEmptySubsequences: true).first.map(String.init) }
+        return names.isEmpty ? nil : Set(names)
+    }
+    static func mcpServerNames(_ configured: WireValue) -> [String] {
+        if case .object(let servers) = configured { return servers.keys.sorted() }
+        return []
+    }
+    /// The first server that is not disabled or that exposes tools, if any.
+    static func liveMCPServer(_ data: WireValue) -> String? {
+        data.values.first { entry in
+            let tools: Int = if case .object(let t) = entry["tools"] { t.count } else { 0 }
+            return entry["runtimeStatus"].text != "disabled" || tools > 0
+        }.map { $0["name"].text ?? "unknown" }
     }
     func availability() async -> AssistantAvailability {
         do {
@@ -162,19 +184,27 @@ private actor CodexConnection {
     }
     func start(_ context: AssistantContext, model: String?) async throws -> any AssistantConversation {
         let directory = try AskDirectory()
+        // Turn off every MCP server the user configured, for this thread only. The user's config is never written.
+        let configured = try await request("config/read", ["cwd": .string(directory.url.path), "includeLayers": false])["config"]["mcp_servers"]
+        let servers = CodexAssistantService.mcpServerNames(configured)
         let response = try await request("thread/start", [
             "cwd": .string(directory.url.path), "baseInstructions": .string(AssistantPrompt.instructions(for: context)),
             "developerInstructions": "Answer using the supplied images and text only. Never invoke tools.",
             "model": model.map(WireValue.string) ?? .null, "modelProvider": "openai", "ephemeral": true,
-            "approvalPolicy": "never", "sandbox": "read-only", "environments": [], "dynamicTools": []
+            "approvalPolicy": "never", "sandbox": "read-only", "environments": [], "dynamicTools": [],
+            "config": ["mcp_servers": .object(Dictionary(uniqueKeysWithValues: servers.map { ($0, ["enabled": false]) }))]
         ])
         guard let id = response["thread"]["id"].text else { throw AssistantError.tool("Codex did not return a thread ID.") }
         do {
-            // Some installations enforce additional MCP configuration. Fail closed before the first turn.
-            let inventory = try await request("mcpServerStatus/list", ["threadId": .string(id), "limit": 1, "detail": "toolsAndAuthOnly"])
-            guard inventory["data"] == [], inventory["nextCursor"] == .null else {
-                throw AssistantError.tool("Codex has active MCP servers in the screenshot thread.")
-            }
+            // Fail closed before the first turn if any MCP server is still live or exposes tools.
+            var cursor: WireValue = .null
+            repeat {
+                let page = try await request("mcpServerStatus/list", ["threadId": .string(id), "limit": 50, "cursor": cursor, "detail": "toolsAndAuthOnly"])
+                if let live = CodexAssistantService.liveMCPServer(page["data"]) {
+                    throw AssistantError.tool("Codex could not turn off the MCP server “\(live)” for this conversation, so SuperShot did not send the image.")
+                }
+                cursor = page["nextCursor"]
+            } while cursor != .null
         } catch {
             _ = try? await request("thread/unsubscribe", ["threadId": .string(id)])
             throw error
