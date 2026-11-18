@@ -17,21 +17,32 @@ import Settings
         window.isMovableByWindowBackground = false; window.acceptsMouseMovedEvents = true
         window.collectionBehavior = preferences.pinAllSpaces ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.fullScreenAuxiliary]
         let state = PinState(image: image, window: window, initialSize: size, opacity: preferences.pinOpacity)
-        window.alphaValue = state.opacity
+        window.state = state
         let host = NSHostingView(rootView: PinView(state: state)); host.sizingOptions = []; window.contentView = host
         window.setContentSize(size)
         window.setFrameOrigin(CGPoint(x: available.midX - size.width / 2, y: available.midY - size.height / 2))
         window.onClose = { [weak self, weak window] in self?.windows.removeAll { $0 === window } }
         windows.append(window)
+        host.wantsLayer = true
         window.orderFrontRegardless()
+        DS.Motion.present(window, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
     }
-    func unlockAll() { windows.forEach { $0.ignoresMouseEvents = false } }
+    func unlockAll() { windows.forEach { $0.state?.locked = false } }
 }
 
 @MainActor private final class PinWindow: NSWindow {
+    weak var state: PinState?
+    private var closing = false
     var onClose: (() -> Void)?
     override var canBecomeKey: Bool { true }
-    override func close() { super.close(); onClose?() }
+    override func close() {
+        guard !closing else { return }
+        closing = true
+        DS.Motion.dismiss(self, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion) { [weak self] in
+            self?.finishClosing()
+        }
+    }
+    private func finishClosing() { super.close(); onClose?() }
     override func performClose(_ sender: Any?) { close() }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers?.lowercased() == "w" { close(); return true }
@@ -43,7 +54,8 @@ import Settings
     let image: CGImage
     weak var window: NSWindow?
     let initialSize: CGSize
-    var opacity: Double { didSet { window?.alphaValue = opacity } }
+    var opacity: Double
+    var locked = false { didSet { window?.ignoresMouseEvents = locked; hovering = false } }
     var hovering = false
     init(image: CGImage, window: NSWindow? = nil, initialSize: CGSize? = nil, opacity: Double = 1) {
         self.image = image; self.window = window
@@ -60,6 +72,9 @@ import Settings
 
 struct PinView: View {
     @Bindable var state: PinState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @LocalState private var adjustingOpacity = false
+
     var body: some View {
         ZStack {
             Image(decorative: state.image, scale: 1).resizable().scaledToFit().allowsHitTesting(false)
@@ -68,45 +83,63 @@ struct PinView: View {
         .clipShape(RoundedRectangle(cornerRadius: DS.controlRadius))
         .overlay(RoundedRectangle(cornerRadius: DS.controlRadius).strokeBorder(Color.primary.opacity(DS.outlineOpacity)).allowsHitTesting(false))
         .overlay(alignment: .top) {
-            if state.hovering {
+            if state.locked {
+                Icon("lock-simple", weight: .fill, size: DS.icon)
+                    .padding(DS.sm).modifier(GlassSurface(radius: DS.pill)).padding(DS.sm)
+                    .accessibilityLabel("Pin locked. Unlock from the SuperShot menu.")
+                    .transition(DS.Motion.pop(reduceMotion: reduceMotion))
+            } else if state.hovering || adjustingOpacity {
                 ViewThatFits(in: .horizontal) {
-                    HStack(spacing: DS.xs) {
-                    Menu {
-                        ForEach([1.0, 0.75, 0.5, 0.25], id: \.self) { value in
-                            Button("\(Int(value * 100))%") { state.opacity = value }
-                        }
-                    } label: { Icon("circle.lefthalf.filled") }
-                        .menuStyle(.borderlessButton).frame(width: DS.toolButton).help("Pin opacity")
-                        .accessibilityLabel("Pin opacity")
-                    IconButton("lock", label: "Lock pin. Unlock from the SuperShot menu.", size: DS.toolButton) { state.window?.ignoresMouseEvents = true }
-                    IconButton("doc.on.doc", label: "Copy image", size: DS.toolButton) { state.copy() }
-                    IconButton("xmark", label: "Close pin · ⌘W", size: DS.toolButton) { state.window?.close() }
-                    }.padding(DS.xs).modifier(GlassSurface(radius: DS.controlRadius)).padding(DS.pinResizeInset)
+                    HStack(spacing: DS.insetStroke) {
+                        IconButton("circle-half", label: "Pin opacity", selected: adjustingOpacity) { adjustingOpacity.toggle() }
+                        IconButton("lock-simple-open", label: "Lock pin. Unlock from the SuperShot menu.") { state.locked = true }
+                        IconButton("copy", label: "Copy image") { state.copy() }
+                        IconButton("x", label: "Close pin · ⌘W") { state.window?.close() }
+                    }.fixedSize()
                     Menu {
                         Button("Copy image") { state.copy() }
                         Button("Restore initial size") { state.restoreSize() }
-                        Button("Lock (clicks pass through)") { state.window?.ignoresMouseEvents = true }
-                        Menu("Opacity") {
-                            ForEach([1.0, 0.75, 0.5, 0.25], id: \.self) { value in
-                                Button("\(Int(value * 100))%") { state.opacity = value }
-                            }
-                        }
+                        Button("Lock (clicks pass through)") { state.locked = true }
+                        Button("Opacity…") { adjustingOpacity = true }
                         Button("Close pin") { state.window?.close() }
-                    } label: { Icon("ellipsis") }
-                        .menuStyle(.borderlessButton).frame(width: DS.toolButton)
-                        .padding(DS.xs).modifier(GlassSurface(radius: DS.controlRadius)).padding(DS.xs)
-                        .accessibilityLabel("Pin actions")
+                    } label: {
+                        Icon("dots-three", weight: .bold, size: DS.iconSize)
+                            .frame(width: DS.toolButtonSize, height: DS.toolButtonSize)
+                    }
+                    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).accessibilityLabel("Pin actions")
                 }
+                .padding(DS.capsulePadding).modifier(GlassSurface(radius: DS.pill))
+                .popover(isPresented: $adjustingOpacity) {
+                    PinOpacityControl(state: state)
+                }
+                .padding(DS.sm)
+                .transition(DS.Motion.reveal(from: .top, reduceMotion: reduceMotion))
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            Icon("arrow.up.left.and.arrow.down.right").font(DS.caption)
-                .padding(DS.xs).background(.regularMaterial, in: RoundedRectangle(cornerRadius: DS.xs))
-                .padding(DS.xs).allowsHitTesting(false)
+            if state.hovering && !state.locked {
+                Icon("arrows-out-simple", size: DS.md)
+                    .padding(DS.xs).modifier(GlassSurface(radius: DS.controlRadius))
+                    .padding(DS.xs).allowsHitTesting(false).transition(.opacity)
+            }
         }
+        .opacity(state.opacity)
+        .animation(DS.Motion.gentle(reduceMotion), value: state.opacity)
+        .animation(DS.Motion.panel(reduceMotion), value: state.hovering)
+        .animation(DS.Motion.snappy(reduceMotion), value: state.locked)
         .onHover { state.hovering = $0 }
         .accessibilityLabel("Pinned screenshot")
         .accessibilityHint("Drag to move. Drag any edge to resize. Double-click to restore size. Arrow keys move; plus and minus resize.")
+    }
+}
+
+struct PinOpacityControl: View {
+    @Bindable var state: PinState
+
+    var body: some View {
+        ValueSlider("Opacity", value: state.opacity, in: 0.2...1,
+                    format: { "\(Int(($0 * 100).rounded()))%" }, onChange: { state.opacity = $0 })
+            .padding(DS.panelPadding).frame(width: DS.pinPopoverWidth)
     }
 }
 
@@ -176,6 +209,6 @@ private final class PinInteractionView: NSView {
     }
     @objc private func copyImage() { state.copy() }
     @objc private func restore() { state.restoreSize() }
-    @objc private func lock() { window?.ignoresMouseEvents = true }
+    @objc private func lock() { state.locked = true }
     @objc private func closePin() { window?.close() }
 }

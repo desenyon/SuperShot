@@ -8,6 +8,15 @@ import DesignSystem
 import Recognition
 import AI
 
+public enum EditorWriteResult: Equatable, Sendable {
+    case written, cancelled, failed(String)
+}
+
+struct EditorExportFeedback: Equatable {
+    let copy: Bool
+    let succeeded: Bool
+}
+
 @MainActor @Observable public final class EditorModel {
     private var history: DocumentHistory
     public var document: CaptureDocument { history.document }
@@ -104,8 +113,9 @@ import AI
     public var presetName = ""
     public var savePresetAction: ((String,Backdrop) -> Void)?
     public var status = ""
-    public var copyAction: ((CGImage) -> Void)?
-    public var saveAction: ((CGImage, String, CaptureDocument) -> Void)?
+    var exportFeedback: EditorExportFeedback?
+    public var copyAction: ((CGImage) async -> EditorWriteResult)?
+    public var saveAction: ((CGImage, String, CaptureDocument) async -> EditorWriteResult)?
     public var pinAction: ((CGImage) -> Void)?
     public var autosaveAction: ((CaptureDocument) -> Void)?
     public var recognition: RecognitionResult?
@@ -124,16 +134,35 @@ import AI
     @ObservationIgnored private var interacting = false
     @ObservationIgnored private var lastRaster: (document: CaptureDocument, factor: Double)?
     @ObservationIgnored public private(set) var generation = 0
+    @ObservationIgnored private var backdropRevision = 0
+    @ObservationIgnored private(set) var renderedBackdropRevision = 0
+    private(set) var zoomCommand = 0
+
     public init(document: CaptureDocument) {
         history = DocumentHistory(document: document)
         image = DocumentRenderer.decode(document.original)
         refresh()
     }
     public func commit(_ change: (inout CaptureDocument) -> Void) {
-        history.change(change); draft = nil; interacting = false; invalidateAnalysis(); refresh(); scheduleSave()
+        let previous = document.backdrop
+        history.change(change)
+        if draft == nil && document.backdrop != previous { backdropRevision &+= 1 }
+        draft = nil; interacting = false; invalidateAnalysis(); refresh(); scheduleSave()
     }
-    public func undo() { draft=nil; interacting=false; history.undo(); selected=[]; invalidateAnalysis(); refresh(); scheduleSave() }
-    public func redo() { draft=nil; interacting=false; history.redo(); selected=[]; invalidateAnalysis(); refresh(); scheduleSave() }
+    public func undo() { restoreHistory(undo: true) }
+    public func redo() { restoreHistory(undo: false) }
+
+    private func restoreHistory(undo: Bool) {
+        let previous = document.backdrop
+        draft = nil
+        interacting = false
+        if undo { history.undo() } else { history.redo() }
+        if document.backdrop != previous { backdropRevision &+= 1 }
+        selected = []
+        invalidateAnalysis()
+        refresh()
+        scheduleSave()
+    }
     private func invalidateAnalysis() {
         recognition=nil; redactions=[]; acceptedRedactions=[]; generatedText=""; status=""
     }
@@ -159,8 +188,13 @@ import AI
         if live { previewChange(change) } else { commit(change) }
     }
     public var selectedLayer: Layer? { current.layers.first { selected.contains($0.id) } }
-    public func zoom(by factor: Double) { zoom = max(0.1, min(32, (zoom == 0 ? displayScale : zoom) * factor)) }
-    public func zoomToFit() { zoom = 0; pan = .zero }
+    public func zoom(by factor: Double) { zoomCommand &+= 1; zoom = max(0.1, min(32, (zoom == 0 ? displayScale : zoom) * factor)) }
+    public func zoomToFit() { setZoom(0) }
+    func setZoom(_ value: Double) {
+        zoomCommand &+= 1
+        zoom = value
+        pan = .zero
+    }
     public func cancelText() { textPoint = nil; textViewPoint = nil; textInput = ""; editingText = nil }
 
     // MARK: Rendering
@@ -182,6 +216,7 @@ import AI
         var trimmed = current
         let live = liveIDs.intersection(trimmed.layers.filter { Self.drawsLive($0.kind) }.map(\.id))
         trimmed.layers.removeAll { live.contains($0.id) }
+        let revision = backdropRevision
         let snapshot = trimmed
         let size = DocumentRenderer.layout(snapshot).size, longest = max(size.width, size.height)
         // A lighter raster while a control is being dragged; full preview quality as soon as it is released.
@@ -194,7 +229,7 @@ import AI
             }.value
             guard let self else { return }
             self.rendering = false
-            if let image = output.image { self.image = image; self.rasterExcluded = live; self.lastRaster = (snapshot, factor) }
+            if let image = output.image { self.renderedBackdropRevision = revision; self.image = image; self.rasterExcluded = live; self.lastRaster = (snapshot, factor) }
             else if !self.pendingRender, let error = output.error { self.message = error }
             if self.pendingRender { self.pendingRender = false; self.startRender() }
         }
@@ -259,16 +294,33 @@ import AI
         if let image=NSImage(pasteboard:.general),let cg=image.cgImage(forProposedRect:nil,context:nil,hints:nil) { addImage(cg) }
     }
     public func export(copy: Bool = false, pin: Bool = false) {
-        guard !busy else { return }; busy=true
-        let snapshot=document, type=format, outputMultiplier=outputMultiplier
+        guard !busy else { return }
+        busy = true
+        exportFeedback = nil
+        status = ""
+        let snapshot = document, type = format, multiplier = outputMultiplier
         Task {
+            defer { busy = false }
             do {
-                let image=try await Task.detached(priority:.userInitiated) { try DocumentRenderer.render(snapshot,scale:outputMultiplier) }.value
-                if copy { copyAction?(image); status="Copied image" }
-                else if pin { pinAction?(image) }
-                else { saveAction?(image,type,snapshot) }
-            } catch { message=error.localizedDescription }
-            busy=false
+                let image = try await Task.detached(priority: .userInitiated) { try DocumentRenderer.render(snapshot, scale: multiplier) }.value
+                if pin { pinAction?(image); return }
+                let result = copy ? await copyAction?(image) : await saveAction?(image, type, snapshot)
+                switch result {
+                case .written:
+                    exportFeedback = EditorExportFeedback(copy: copy, succeeded: true)
+                    status = copy ? "Copied image" : "Saved image"
+                case let .failed(reason):
+                    exportFeedback = EditorExportFeedback(copy: copy, succeeded: false)
+                    status = reason
+                case .cancelled, nil: break
+                }
+            } catch {
+                if pin { message = error.localizedDescription }
+                else {
+                    exportFeedback = EditorExportFeedback(copy: copy, succeeded: false)
+                    status = error.localizedDescription
+                }
+            }
         }
     }
     public func flushAutosave() {

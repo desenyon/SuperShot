@@ -11,7 +11,7 @@ struct EditorCanvas: NSViewRepresentable {
     func updateNSView(_ view: CanvasView, context: Context) {
         // Reading these registers them with Observation so the canvas updates when they change.
         _ = model.image; _ = model.selected; _ = model.zoom; _ = model.pan; _ = model.draft; _ = model.rasterExcluded
-        _ = model.inspector; _ = model.showBackdrop; _ = model.tool; _ = model.recognition
+        _ = model.zoomCommand; _ = model.inspector; _ = model.showBackdrop; _ = model.tool; _ = model.recognition
         _ = model.pickingAskRegion; _ = model.highlightedAskRegion; _ = model.ask?.regions.last?.id
         view.sync()
     }
@@ -23,6 +23,9 @@ struct EditorCanvas: NSViewRepresentable {
 /// Selected layers, layers being drawn, handles, and guides are painted by a lightweight overlay on every pointer event.
 @MainActor final class CanvasView: NSView {
     let model: EditorModel
+    private let stage = CanvasStage()
+    private var zoomCommand = 0
+    private var backdropRevision = 0
     private let checkerLayer = CALayer()
     private let imageLayer = CALayer()
     private let overlay = CanvasOverlay()
@@ -54,10 +57,12 @@ struct EditorCanvas: NSViewRepresentable {
         checkerLayer.shadowOpacity = 0.3; checkerLayer.shadowRadius = 22; checkerLayer.shadowOffset = CGSize(width: 0, height: 10)
         imageLayer.contentsGravity = .resize
         imageLayer.minificationFilter = .trilinear
-        layer?.addSublayer(checkerLayer)
-        layer?.addSublayer(imageLayer)
+        addSubview(stage)
+        stage.wantsLayer = true
+        stage.layer?.addSublayer(checkerLayer)
+        stage.layer?.addSublayer(imageLayer)
         overlay.canvas = self
-        addSubview(overlay)
+        stage.addSubview(overlay)
         registerForDraggedTypes([.fileURL, .png, .tiff])
         setAccessibilityRole(.image)
         setAccessibilityLabel("Screenshot editing canvas")
@@ -124,12 +129,26 @@ struct EditorCanvas: NSViewRepresentable {
     /// Positions the image layer and repaints the overlay. Cheap enough to call on every pointer event.
     func sync() {
         let rect = imageRect
+        let oldRect = imageLayer.frame
+        let oldTransform = zoomCommand != model.zoomCommand ? stage.layer?.presentation()?.affineTransform() : nil
+        stage.frame = bounds
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        if displayedImage !== model.image { imageLayer.contents = model.image; displayedImage = model.image }
+        if displayedImage !== model.image {
+            if displayedImage != nil, backdropRevision != model.renderedBackdropRevision, !DS.rendersOffscreen {
+                imageLayer.add(DS.Motion.canvasFade(reduceMotion: reduceMotion), forKey: "backdrop")
+            }
+            backdropRevision = model.renderedBackdropRevision
+            imageLayer.contents = model.image
+            displayedImage = model.image
+        }
         imageLayer.frame = rect
         imageLayer.magnificationFilter = factor >= 3 ? .nearest : .linear
         checkerLayer.frame = rect
         checkerLayer.shadowPath = CGPath(rect: CGRect(origin: .zero, size: rect.size), transform: nil)
+        if zoomCommand != model.zoomCommand {
+            zoomCommand = model.zoomCommand
+            animateZoom(from: oldRect, presentation: oldTransform ?? .identity, to: rect)
+        }
         CATransaction.commit()
         syncAskGuide()
         overlay.frame = bounds
@@ -169,6 +188,27 @@ struct EditorCanvas: NSViewRepresentable {
         syncAskGuide()
     }
 
+    private var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+
+    /// Animate the already-rasterized image and its vector overlay together. When retargeting,
+    /// start from the in-flight presentation transform, relative to the stage's center.
+    private func animateZoom(from old: CGRect, presentation: CGAffineTransform, to next: CGRect) {
+        guard let layer = stage.layer, !old.isEmpty, !next.isEmpty, old != next, !DS.rendersOffscreen else { return }
+        if reduceMotion {
+            layer.add(DS.Motion.canvasFade(reduceMotion: true), forKey: "zoom")
+            return
+        }
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let previous = CGPoint(x: old.midX - center.x, y: old.midY - center.y).applying(presentation)
+        let scale = old.width * presentation.a / next.width
+        let start = CGAffineTransform(a: scale, b: 0, c: 0, d: scale,
+                                      tx: previous.x - (next.midX - center.x) * scale,
+                                      ty: previous.y - (next.midY - center.y) * scale)
+        let animation = DS.Motion.caSpring("transform", from: NSValue(caTransform3D: CATransform3DMakeAffineTransform(start)),
+                                           to: NSValue(caTransform3D: CATransform3DIdentity), reduceMotion: false)
+        layer.add(animation, forKey: "zoom")
+    }
+
     override func resetCursorRects() {
         let cursor: NSCursor = model.pickingAskRegion ? .crosshair : model.tool == "select" ? .arrow : model.tool == "text" ? .iBeam : .crosshair
         addCursorRect(imageRect.intersection(bounds), cursor: cursor)
@@ -177,6 +217,7 @@ struct EditorCanvas: NSViewRepresentable {
     // MARK: Mouse
 
     override func mouseDown(with event: NSEvent) {
+        stage.layer?.removeAnimation(forKey: "zoom")
         window?.makeFirstResponder(self)
         if model.inspector == "ask", model.pickingAskRegion || event.modifierFlags.contains(.command) {
             let point = imagePoint(event)
@@ -332,8 +373,9 @@ struct EditorCanvas: NSViewRepresentable {
         return result
     }
 
-    override func magnify(with event: NSEvent) { model.zoom = max(0.1, min(32, factor * (1 + event.magnification))); sync() }
+    override func magnify(with event: NSEvent) { stage.layer?.removeAnimation(forKey: "zoom"); model.zoom = max(0.1, min(32, factor * (1 + event.magnification))); sync() }
     override func scrollWheel(with event: NSEvent) {
+        stage.layer?.removeAnimation(forKey: "zoom")
         if event.modifierFlags.contains(.command) { model.zoom = max(0.1, min(32, factor * exp(-event.scrollingDeltaY / 150))) }
         else { model.pan.x += event.scrollingDeltaX; model.pan.y += event.scrollingDeltaY }
         sync()
@@ -352,7 +394,7 @@ struct EditorCanvas: NSViewRepresentable {
         case "d": model.duplicateSelection()
         case "a": model.tool = "select"; model.selected = Set(model.document.layers.map(\.id))
         case "0": model.zoomToFit()
-        case "1": model.zoom = 1; model.pan = .zero
+        case "1": model.setZoom(1)
         case "=", "+": model.zoom(by: 1.25)
         case "-": model.zoom(by: 0.8)
         default: return super.performKeyEquivalent(with: event)
@@ -395,6 +437,12 @@ struct EditorCanvas: NSViewRepresentable {
         if let image = NSImage(pasteboard: board)?.cgImage(forProposedRect: nil, context: nil, hints: nil) { model.addImage(image); return true }
         return false
     }
+}
+
+/// A single compositing layer keeps animated image pixels, selection handles, and guides aligned.
+private final class CanvasStage: NSView {
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 /// Paints everything that changes with the pointer: live layers, selection handles, guides, crop, and marquee.

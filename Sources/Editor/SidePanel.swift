@@ -71,7 +71,7 @@ struct SidePanel: View {
                 HStack(spacing: DS.sm) {
                     Icon(ToolRegistry.tool(layer.kind.rawValue)?.symbol ?? "photo")
                         .font(.system(size: 12, weight: .medium)).frame(width: 26, height: 26)
-                        .foregroundStyle(selected ? Color.white : Color.primary)
+                        .foregroundStyle(selected ? DS.onAccent : Color.primary)
                         .background(selected ? DS.accent : DS.hover(scheme), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                     Text(layer.text.isEmpty ? (ToolRegistry.tool(layer.kind.rawValue)?.title ?? layer.kind.rawValue.capitalized) : layer.text)
                         .font(DS.body).lineLimit(1)
@@ -177,7 +177,7 @@ struct SidePanel: View {
                 Picker("Target language", selection: $model.translationLanguage) {
                     Text("English").tag("en"); Text("Spanish").tag("es"); Text("French").tag("fr")
                     Text("German").tag("de"); Text("Japanese").tag("ja"); Text("Chinese").tag("zh-Hans")
-                }.labelsHidden()
+                }.labelsHidden().pickerStyle(.menu).buttonStyle(.plain)
                 Button("Translate") { model.performAI(.translate(model.translationLanguage)) }
                     .buttonStyle(QuietButtonStyle()).disabled(model.busy)
             }
@@ -273,7 +273,8 @@ struct SidePanel: View {
 
     private func emptyState(_ symbol: String, _ title: String, _ message: String) -> some View {
         VStack(spacing: DS.sm) {
-            Icon(symbol, size: 29).foregroundStyle(.tertiary)
+            Icon(symbol, size: DS.xl).foregroundStyle(.secondary)
+                .frame(width: DS.xxl, height: DS.xxl).background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.groupRadius))
             Text(title).font(DS.emphasis)
             Text(message).font(DS.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
         }
@@ -298,9 +299,8 @@ struct ActionRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: DS.md) {
-                Icon(symbol, size: 16).frame(width: 28, height: 28)
-                    .foregroundStyle(DS.actionInk(scheme))
-                    .background(DS.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Icon(symbol, size: DS.iconSize).frame(width: DS.toolButtonSize, height: DS.toolButtonSize)
+                    .foregroundStyle(.primary).background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.buttonRadius))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(DS.body.weight(.medium))
                     Text(subtitle).font(DS.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -331,7 +331,7 @@ struct EditorPanelSwitcher: View {
             tab("stack", "Layers", "layers")
             tab("info", "Details", "info")
         }
-        .padding(DS.md / 2).frame(height: DS.barHeight).modifier(GlassSurface(radius: DS.pill))
+        .padding(DS.capsulePadding).frame(height: DS.capsuleHeight).modifier(GlassSurface(radius: DS.pill))
     }
 
     private func tab(_ symbol: String, _ label: String, _ id: String) -> some View {

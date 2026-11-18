@@ -37,3 +37,15 @@ final class DesignSystemTests {
         #expect(DS.motionDuration(reduceMotion: false) == 0.28)
     }
 }
+
+extension DesignSystemTests {
+    @Test @MainActor func floatingMetricsReflectLiveDensity() {
+        let theme = ThemeState.shared
+        let previous = theme.density
+        defer { theme.density = previous }
+        theme.density = .regular
+        #expect(DS.toolButtonSize == 32 && DS.capsuleHeight == 42 && DS.panelPadding == 16)
+        theme.density = .compact
+        #expect(DS.toolButtonSize == 28 && DS.capsuleHeight == 36 && DS.panelPadding == 12)
+    }
+}
