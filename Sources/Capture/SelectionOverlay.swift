@@ -1,17 +1,18 @@
 import AppKit
+import SwiftUI
 import DesignSystem
 
 /// What to do with a selected area, chosen from the bar under the selection.
 public enum OverlayAction: String, CaseIterable, Sendable {
     /// Follow the user's "after an area capture" setting.
-    case capture, copy, save, edit, pin, text
+    case capture, copy, save, edit, pin, text, ask
     var title: String {
-        switch self { case .capture: "Capture"; case .copy: "Copy"; case .save: "Save"; case .edit: "Edit"; case .pin: "Pin"; case .text: "Text" }
+        switch self { case .capture: "Capture"; case .copy: "Copy"; case .save: "Save"; case .edit: "Edit"; case .pin: "Pin"; case .text: "Text"; case .ask: "Ask" }
     }
     var symbol: String {
         switch self {
         case .capture: "camera.viewfinder"; case .copy: "doc.on.doc"; case .save: "square.and.arrow.down"
-        case .edit: "pencil.tip.crop.circle"; case .pin: "pin"; case .text: "text.viewfinder"
+        case .edit: "pencil.tip.crop.circle"; case .pin: "pin"; case .text: "text.viewfinder"; case .ask: "chat-circle-dots"
         }
     }
 }
@@ -19,7 +20,7 @@ public enum OverlayAction: String, CaseIterable, Sendable {
 @MainActor public final class SelectionOverlay {
     private var window: OverlayWindow?
     public init() {}
-    public func show(screen: NSScreen, capture: CapturedImage, windows: [CaptureWindow]? = nil, snappingWindows: [CaptureWindow] = [], showsActions: Bool = false, captureOnRelease: Bool = false, completion: @escaping (CGRect?, CGWindowID?, OverlayAction) -> Void) {
+    public func show(screen: NSScreen, capture: CapturedImage, windows: [CaptureWindow]? = nil, snappingWindows: [CaptureWindow] = [], showsActions: Bool = false, captureOnRelease: Bool = false, overlayActions: [OverlayAction] = OverlayAction.allCases, showsLabels: Bool = true, completion: @escaping (CGRect?, CGWindowID?, OverlayAction) -> Void) {
         dismiss()
         let window = OverlayWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.level = .screenSaver; window.backgroundColor = .clear; window.isOpaque = false
@@ -28,6 +29,8 @@ public enum OverlayAction: String, CaseIterable, Sendable {
         let view = SelectionView(frame: NSRect(origin: .zero, size: screen.frame.size), capture: capture, windows: windows, snappingWindows: snappingWindows, screenOrigin: CGDisplayBounds(screen.displayID).origin) { [weak self] rect, id, action in
             self?.dismiss(); completion(rect, id, action)
         }
+        view.overlayActions = overlayActions
+        view.showsLabels = showsLabels
         view.showsActions = showsActions
         view.captureOnRelease = captureOnRelease
         window.contentView = view; self.window = window
@@ -57,18 +60,24 @@ private final class OverlayWindow: NSWindow { override var canBecomeKey: Bool { 
     private let snappingWindows: [CaptureWindow]
     private let screenOrigin: CGPoint
     private let completion: (CGRect?, CGWindowID?, OverlayAction) -> Void
+    var overlayActions = OverlayAction.allCases
+    var showsLabels = true
     var showsActions = false
+    private var actionBar: AreaActionBar?
+    static func orderedActions(_ requested: [OverlayAction]) -> [OverlayAction] {
+        var seen = Set<OverlayAction>()
+        let ordered = requested.filter { seen.insert($0).inserted }
+        return seen.contains(.capture) ? ordered : [.capture] + ordered
+    }
     var captureOnRelease = false { didSet { updateAccessibilityInstructions() } }
     private var completed = false
     private var hasDragged = false
     private var freshSelection = false
-    private var actionRects: [(action: OverlayAction, rect: CGRect)] = []
-    private var hoveredAction: OverlayAction?
     private var start = CGPoint.zero
     private var pointer = CGPoint.zero
-    private var selection = CGRect.zero
+    private var selection = CGRect.zero { didSet { layoutActionBar() } }
     private var selectedWindow: CGWindowID?
-    private var dragging = false
+    private var dragging = false { didSet { layoutActionBar() } }
     private var moving = false
     private var typedSize = ""
     private var resizeStart: CGPoint?
@@ -161,48 +170,39 @@ private final class OverlayWindow: NSWindow { override var canBecomeKey: Bool { 
             cross.move(to: CGPoint(x: 0, y: pointer.y)); cross.line(to: CGPoint(x: bounds.width, y: pointer.y)); cross.stroke()
             drawLoupe()
         }
-        drawActionBar()
         let hint = choices != nil ? "Click a window   ·   esc to cancel"
             : captureOnRelease && dragging && freshSelection ? "Release to capture   ·   esc to cancel"
             : !typedSize.isEmpty ? "Size  \(typedSize)   ·   return to apply"
             : selection.isEmpty && captureOnRelease ? "Drag and release to capture   ·   esc to cancel"
             : selection.isEmpty ? "Drag to select   ·   type 800x600 for an exact size   ·   esc to cancel"
             : "return to capture   ·   space to move   ·   arrows to nudge   ·   esc to cancel"
-        if actionRects.isEmpty { badge(hint, centeredAt: CGPoint(x: bounds.midX, y: bounds.maxY - DS.xxl - DS.lg), font: DS.hintFont, height: 34) }
+        if actionBar?.isHidden != false { badge(hint, centeredAt: CGPoint(x: bounds.midX, y: bounds.maxY - DS.xxl - DS.lg), font: DS.hintFont, height: 34) }
     }
 
     /// A bar of one-click outcomes under a finished selection, so the choice is made at capture time.
-    private func drawActionBar() {
-        actionRects = []
-        guard showsActions, choices == nil, !dragging, selection.width >= 8, selection.height >= 8 else { return }
-        let cell = CGSize(width: 62, height: 50), inset: CGFloat = 5
-        let actions = OverlayAction.allCases
-        let size = CGSize(width: CGFloat(actions.count) * cell.width + inset * 2, height: cell.height + inset * 2)
-        var origin = CGPoint(x: selection.midX - size.width / 2, y: selection.maxY + DS.md)
-        if origin.y + size.height + DS.sm > bounds.height { origin.y = selection.minY - size.height - DS.md - DS.badgeHeight - DS.sm }
-        if origin.y < DS.sm { origin.y = selection.maxY - size.height - DS.md }
-        origin.x = max(DS.sm, min(origin.x, bounds.width - size.width - DS.sm))
-        let bar = CGRect(origin: origin, size: size)
-        NSGraphicsContext.saveGraphicsState()
-        let lift = NSShadow(); lift.shadowBlurRadius = 18; lift.shadowOffset = CGSize(width: 0, height: -6); lift.shadowColor = NSColor.black.withAlphaComponent(0.45); lift.set()
-        NSColor(white: 0.09, alpha: 0.94).setFill(); NSBezierPath(roundedRect: bar, xRadius: 16, yRadius: 16).fill()
-        NSGraphicsContext.restoreGraphicsState()
-        NSColor.white.withAlphaComponent(0.14).setStroke()
-        let border = NSBezierPath(roundedRect: bar.insetBy(dx: 0.5, dy: 0.5), xRadius: 16, yRadius: 16); border.lineWidth = 1; border.stroke()
-        for (index, action) in actions.enumerated() {
-            let rect = CGRect(x: bar.minX + inset + CGFloat(index) * cell.width, y: bar.minY + inset, width: cell.width, height: cell.height)
-            actionRects.append((action, rect))
-            let primary = action == .capture
-            if primary || hoveredAction == action {
-                (primary ? DS.nsAccent : NSColor.white.withAlphaComponent(0.12)).setFill()
-                NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 0), xRadius: 11, yRadius: 11).fill()
+    private func layoutActionBar() {
+        guard showsActions, choices == nil, !dragging, selection.width >= 8, selection.height >= 8 else {
+            actionBar?.isHidden = true
+            return
+        }
+        let bar: AreaActionBar
+        if let actionBar { bar = actionBar }
+        else {
+            bar = AreaActionBar(actions: Self.orderedActions(overlayActions), labels: showsLabels) { [weak self] action in
+                guard let self else { return }; finish(selection, nil, action)
             }
-            let symbol = Icons.tinted(action.symbol, color: .white, weight: primary ? .fill : .regular, size: 20)
-            symbol.draw(in: CGRect(x: rect.midX - 10, y: rect.minY + 7, width: 20, height: 20),
-                        from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-            let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 10, weight: .medium), .foregroundColor: NSColor.white.withAlphaComponent(primary ? 1 : 0.8)]
-            let label = (action.title as NSString).size(withAttributes: attributes)
-            (action.title as NSString).draw(at: CGPoint(x: rect.midX - label.width / 2, y: rect.maxY - label.height - 6), withAttributes: attributes)
+            bar.isHidden = true
+            addSubview(bar); actionBar = bar
+        }
+        let size = bar.frame.size
+        let x = max(DS.sm, min(selection.midX - size.width / 2, bounds.width - size.width - DS.sm))
+        var y = selection.maxY + DS.md
+        if y + size.height + DS.sm > bounds.height { y = selection.minY - size.height - DS.md - DS.badgeHeight - DS.sm }
+        if y < DS.sm { y = max(DS.sm, selection.maxY - size.height - DS.md) }
+        bar.setFrameOrigin(CGPoint(x: x, y: y))
+        if bar.isHidden {
+            bar.isHidden = false
+            if !isPreview { bar.reveal() }
         }
     }
 
@@ -276,7 +276,6 @@ private final class OverlayWindow: NSWindow { override var canBecomeKey: Bool { 
     }
     override func mouseMoved(with event: NSEvent) {
         pointer = convert(event.locationInWindow,from:nil)
-        hoveredAction = actionRects.first(where: { $0.rect.contains(pointer) })?.action
         if let choices {
             let point = CGPoint(x:pointer.x+screenOrigin.x,y:pointer.y+screenOrigin.y)
             if let choice = choices.first(where:{$0.frame.contains(point)}) {
@@ -291,8 +290,6 @@ private final class OverlayWindow: NSWindow { override var canBecomeKey: Bool { 
     }
     override func mouseDown(with event: NSEvent) {
         guard !completed else { return }
-        let click = convert(event.locationInWindow, from: nil)
-        if let hit = actionRects.first(where: { $0.rect.contains(click) }) { finish(selection, nil, hit.action); return }
         mouseMoved(with:event)
         if choices != nil { if let id = selectedWindow { finish(nil,id,.capture) }; return }
         start = pointer; dragging = true; hasDragged = false; freshSelection = false
@@ -377,5 +374,69 @@ private final class OverlayWindow: NSWindow { override var canBecomeKey: Bool { 
     private func clampSelection() {
         selection.origin.x = max(0,min(selection.origin.x,bounds.width-selection.width))
         selection.origin.y = max(0,min(selection.origin.y,bounds.height-selection.height))
+    }
+}
+
+/// The HUD has its own backing layer. Its entrance never invalidates the frozen screen.
+@MainActor private final class AreaActionBar: NSView {
+    init(actions: [OverlayAction], labels: Bool, perform: @escaping (OverlayAction) -> Void) {
+        let size = CGSize(width: CGFloat(actions.count) * DS.Ask.cell + DS.sm,
+                          height: (labels ? DS.Ask.cell : DS.xxl) + DS.sm)
+        super.init(frame: CGRect(origin: .zero, size: size))
+        wantsLayer = true
+        layer?.shadowColor = DS.Ask.hudShadow.cgColor; layer?.shadowOpacity = 1
+        layer?.shadowRadius = DS.md; layer?.shadowOffset = CGSize(width: 0, height: -DS.xs)
+        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: DS.lg, cornerHeight: DS.lg, transform: nil)
+        let host = NSHostingView(rootView: HStack(spacing: 0) {
+            ForEach(actions, id: \.self) { action in
+                AreaActionCell(action: action, labels: labels) { perform(action) }
+            }
+        }.padding(DS.xs))
+        host.sizingOptions = []; host.frame = bounds; addSubview(host)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let rect = bounds.insetBy(dx: DS.stroke / 2, dy: DS.stroke / 2)
+        let shape = NSBezierPath(roundedRect: rect, xRadius: DS.lg, yRadius: DS.lg)
+        DS.Ask.hud.setFill(); shape.fill()
+        DS.Ask.hudEdge.setStroke(); shape.lineWidth = DS.stroke; shape.stroke()
+        NSGraphicsContext.saveGraphicsState()
+        shape.addClip()
+        NSGradient(starting: DS.Ask.hudWash, ending: DS.Ask.hudWash.withAlphaComponent(0))?
+            .draw(in: CGRect(x: 0, y: bounds.maxY - DS.sm, width: bounds.width, height: DS.sm), angle: -90)
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    func reveal() {
+        let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        layer?.add(DS.Motion.caSpring("opacity", from: 0, to: 1, reduceMotion: reduced), forKey: "arrivalOpacity")
+        guard !reduced else { return }
+        let transform = CATransform3DTranslate(CATransform3DMakeScale(0.96, 0.96, 1), 0, -DS.sm, 0)
+        layer?.add(DS.Motion.caSpring("transform", from: NSValue(caTransform3D: transform),
+                                      to: NSValue(caTransform3D: CATransform3DIdentity), reduceMotion: false), forKey: "arrival")
+    }
+}
+
+private struct AreaActionCell: View {
+    let action: OverlayAction
+    let labels: Bool
+    let perform: () -> Void
+    @LocalState private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    var body: some View {
+        let primary = action == .capture
+        Button(action: perform) {
+            VStack(spacing: DS.xs / 2) {
+                Icon(action.symbol, weight: primary ? .fill : .regular, size: DS.radius)
+                if labels { Text(action.title).font(Font(DS.Ask.hudLabel)) }
+            }
+            .foregroundStyle(primary ? DS.onAccent : DS.white)
+            .frame(width: DS.Ask.cell, height: labels ? DS.Ask.cell : DS.xxl)
+            .background(primary ? DS.accent : hovering ? Color(nsColor: DS.Ask.hudWash) : .clear,
+                        in: RoundedRectangle(cornerRadius: DS.groupRadius))
+            .contentShape(Rectangle())
+        }.buttonStyle(PressableStyle()).accessibilityLabel(action.title).help(action.title)
+        .onHover { over in withAnimation(DS.Motion.hover(reduced)) { hovering = over } }
     }
 }

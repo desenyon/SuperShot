@@ -11,7 +11,20 @@ struct SidePanel: View {
     @Bindable var model: EditorModel
     @Environment(\.colorScheme) private var scheme
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
+        Group {
+            if model.inspector == "ask", let ask = model.ask {
+                AskView(model: ask, editor: model, close: { model.inspector = "" })
+                    .frame(width: DS.Ask.editorWidth)
+            } else { inspectorContent }
+        }
+        .id(model.inspector)
+        .transition(DS.Motion.reveal(from: .trailing, reduceMotion: reduceMotion))
+        .animation(DS.Motion.panel(reduceMotion), value: model.inspector)
+    }
+
+    private var inspectorContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(title).font(DS.title)
@@ -300,5 +313,52 @@ struct ActionRow: View {
         }
         .buttonStyle(.plain).opacity(enabled ? 1 : 0.5)
         .onHover { hovering = $0 }
+    }
+}
+
+struct EditorPanelSwitcher: View {
+    let model: EditorModel
+    @Namespace private var tile
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var scheme
+    @LocalState private var hovered: String?
+
+    var body: some View {
+        HStack(spacing: DS.xs / 2) {
+            tab("scan", "Text and codes", "recognition")
+            tab("magic-wand", "Smart tools", "intelligence")
+            if model.askOptions != nil { tab("chat-circle-dots", "Ask", "ask") }
+            tab("stack", "Layers", "layers")
+            tab("info", "Details", "info")
+        }
+        .padding(DS.md / 2).frame(height: DS.barHeight).modifier(GlassSurface(radius: DS.pill))
+    }
+
+    private func tab(_ symbol: String, _ label: String, _ id: String) -> some View {
+        let selected = model.inspector == id
+        return Button {
+            withAnimation(DS.Motion.panel(reduceMotion)) {
+                if selected { model.inspector = "" }
+                else if id == "ask" { model.openAsk() }
+                else {
+                    model.inspector = id
+                    if id == "recognition", model.recognition == nil { model.recognize() }
+                }
+            }
+        } label: {
+            Icon(symbol, weight: selected ? .fill : .regular, size: DS.iconSize)
+                .foregroundStyle(selected ? DS.onAccent : Color.primary)
+                .frame(minWidth: DS.xl, idealWidth: DS.toolButton, maxWidth: DS.toolButton, minHeight: DS.toolButton, maxHeight: DS.toolButton)
+                .background {
+                    if selected {
+                        if reduceMotion { RoundedRectangle(cornerRadius: DS.controlRadius).fill(DS.accent) }
+                        else { RoundedRectangle(cornerRadius: DS.controlRadius).fill(DS.accent).matchedGeometryEffect(id: "active", in: tile) }
+                    } else if hovered == id { RoundedRectangle(cornerRadius: DS.controlRadius).fill(DS.hover(scheme)) }
+                }.contentShape(Rectangle())
+        }
+        .buttonStyle(PressableStyle()).accessibilityLabel(label).help(label)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .onHover { over in withAnimation(DS.Motion.hover(reduceMotion)) { hovered = over ? id : nil } }
+        .animation(DS.Motion.snappy(reduceMotion), value: model.inspector)
     }
 }

@@ -82,18 +82,7 @@ public struct EditorView: View {
     }
 
     private var panelSwitcher: some View {
-        HStack(spacing: 2) {
-            panelButton("text.viewfinder", "Text and codes", "recognition") { if model.recognition == nil { model.recognize() } }
-            panelButton("sparkles", "Smart tools", "intelligence")
-            panelButton("square.3.layers.3d", "Layers", "layers")
-            panelButton("info.circle", "Details", "info")
-        }
-        .padding(6).frame(height: DS.barHeight).modifier(GlassSurface(radius: DS.pill))
-    }
-    private func panelButton(_ symbol: String, _ label: String, _ id: String, onOpen: @escaping () -> Void = {}) -> some View {
-        IconButton(symbol, label: label, selected: model.inspector == id) {
-            if model.inspector == id { model.inspector = "" } else { model.inspector = id; onOpen() }
-        }
+        EditorPanelSwitcher(model: model)
     }
 
     private var documentBar: some View {

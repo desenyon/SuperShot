@@ -32,7 +32,11 @@ import UniformTypeIdentifiers
     private var pendingSaves: [UUID:Task<Void,Never>] = [:]
     private var previous: (display: CGDirectDisplayID, selection: CGRect)?
     private var thumbnailScreen: NSScreen?
-    private var thumbnails: [NSPanel] = []
+    private var thumbnails: [ThumbnailPanel] = []
+    private var floatingAsk: AskPanelController?
+    private let askSelection = ThumbnailAskSelection()
+    private var requestedAsk: UUID?
+    private var appliedAssistant: AssistantPreferences?
     private var editors: [EditorWindowController] = []
     let pins = PinController()
     var hasVisibleSurface: Bool { busy || scrolling.isRunning || pins.hasVisiblePins || libraryWindow?.window?.isVisible == true || results.contains(where:{$0.isVisible}) || thumbnails.contains(where: { $0.isVisible }) || editors.contains(where: { $0.window?.isVisible == true }) }
@@ -63,7 +67,9 @@ import UniformTypeIdentifiers
                     }
                 case .area, .window, .text, .code, .scrolling:
                     let choices = try await candidates
-                    overlay.show(screen:screen,capture:image,windows:mode == .window ? choices : nil,snappingWindows:choices ?? [],showsActions:mode == .area,captureOnRelease:mode == .area && settings.preferences.captureOnRelease) { [weak self] rect, id, action in
+                    overlay.show(screen:screen,capture:image,windows:mode == .window ? choices : nil,snappingWindows:choices ?? [],showsActions:mode == .area,captureOnRelease:mode == .area && settings.preferences.captureOnRelease,
+                                 overlayActions: settings.preferences.customization.overlayActions.compactMap(OverlayAction.init(rawValue:)).filter { $0 != .ask || settings.preferences.assistant.isEnabled },
+                                 showsLabels: settings.preferences.customization.overlayLabels) { [weak self] rect, id, action in
                         guard let self else { return }
                         guard id != nil || rect != nil else { self.busy = false; return }
                         // Keep the capture session busy until its asynchronous outputs finish.
@@ -87,6 +93,7 @@ import UniformTypeIdentifiers
                                             case .save: await self.finish(capture,mode: .area,override:[.save])
                                             case .edit: await self.finish(capture,mode: .area,override:[.editor])
                                             case .pin: await self.finish(capture,mode: .area,override:[.pin])
+                                            case .ask: await self.finish(capture, mode: .area, override: [.thumbnail], openAsk: true)
                                             case .text: await self.recognizeCapture(capture, codes:false)
                                             }
                                         }
@@ -139,7 +146,7 @@ import UniformTypeIdentifiers
     }
     func openLast() { if let last { preview(last) } else { showError("Take a screenshot first to open your last capture.") } }
     /// `override` replaces the configured after-capture actions for this one capture.
-    private func finish(_ capture: CapturedImage, mode: CaptureActionMode, override: Set<AfterCapture>? = nil) async {
+    private func finish(_ capture: CapturedImage, mode: CaptureActionMode, override: Set<AfterCapture>? = nil, openAsk: Bool = false) async {
         last=capture
         let actions = settings.preferences.actions(for: mode, override: override)
         // Reserve the copy before backdrop rendering can suspend this task.
@@ -177,7 +184,7 @@ import UniformTypeIdentifiers
         } catch { showError(error.localizedDescription); return }
         if actions.contains(.editor) { preview(capture) }
         if actions.contains(.pin) { pins.pin(styled.image, preferences: settings.preferences.floating) }
-        if actions.contains(.thumbnail) { thumbnail(capture,display:styled.image) }
+        if actions.contains(.thumbnail) { thumbnail(capture, display: styled.image, openAsk: openAsk) }
         if let copyRequest { await copy(styled, request: copyRequest) }
         if actions.contains(.save) { await save(styled, choose:false, project:project) }
     }
@@ -231,33 +238,49 @@ import UniformTypeIdentifiers
             }.value
         } catch { showError(error.localizedDescription) }
     }
-    private func thumbnail(_ capture: CapturedImage, display: CGImage? = nil) {
+    private func thumbnail(_ capture: CapturedImage, display: CGImage? = nil, openAsk: Bool = false) {
         let presented = display.map{CapturedImage(image:$0,scale:capture.scale,source:capture.source)} ?? capture
         guard let screen=NSScreen.underPointer else { return }
         let preferences = settings.preferences.floating
         let size = CGSize(width: preferences.thumbnailWidth, height: preferences.thumbnailWidth * DS.thumbnailSize.height / DS.thumbnailSize.width)
         let capacity = max(1, min(3, Int((screen.visibleFrame.height - DS.xl * 2) / (size.height + DS.md))))
-        while thumbnails.count >= capacity { thumbnails.removeFirst().close() }
-        let panel = NSPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        while thumbnails.count >= capacity, let oldest = thumbnails.first(where: { $0 !== floatingAsk?.anchor }) {
+            dismissThumbnail(oldest)
+        }
+        let panel = ThumbnailPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = .floating; panel.isOpaque = false; panel.backgroundColor = .clear
         panel.isReleasedWhenClosed = false; panel.hasShadow = false
         let dismiss: () -> Void = { [weak self, weak panel] in
-            panel?.close(); self?.thumbnails.removeAll { $0 === panel }; self?.layoutThumbnails()
+            if let panel { self?.dismissThumbnail(panel) }
         }
-        let view = ThumbnailView(capture: presented, open: { [weak self] in self?.preview(capture) },
+        panel.swipeAway = dismiss
+        let showAsk: () -> Void = { [weak self, weak panel] in
+            if let panel { self?.toggleAsk(for: capture, anchor: panel) }
+        }
+        let view = ThumbnailView(capture: presented, settings: settings, selection: askSelection, captureID: capture.id, ask: showAsk,
+                                 open: { [weak self] in self?.preview(capture) },
                                  copy: { [weak self] in Task { await self?.copy(presented) } },
                                  save: { [weak self] in Task { await self?.save(presented, choose: true, project: try? await self?.makeDocument(capture)) } },
                                  pin: { [weak self] in self?.pinImage(presented.image); dismiss() }, dismiss: dismiss)
-        let hosting = NSHostingView(rootView: view); hosting.sizingOptions = []; panel.contentView = hosting
+        let hosting = NSHostingView(rootView: view); hosting.sizingOptions = []; hosting.wantsLayer = true; panel.contentView = hosting
         panel.setContentSize(size); thumbnailScreen = screen
         thumbnails.append(panel); layoutThumbnails(); panel.orderFrontRegardless()
+        let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        DS.Motion.present(panel, reduceMotion: reduced)
+        if !reduced {
+            let x = panel.onRight ? DS.xxl : -DS.xxl
+            let from = CATransform3DTranslate(CATransform3DMakeScale(0.94, 0.94, 1), x, 0, 0)
+            hosting.layer?.add(DS.Motion.caSpring("transform", from: NSValue(caTransform3D: from),
+                                                  to: NSValue(caTransform3D: CATransform3DIdentity), reduceMotion: false), forKey: "present")
+        }
+        if openAsk { showAsk() }
         if preferences.thumbnailSeconds > 0 {
-            Task { @MainActor [weak panel] in
+            Task { @MainActor [weak self, weak panel] in
                 var remaining = preferences.thumbnailSeconds
                 while remaining > 0 {
                     try? await Task.sleep(for: .seconds(1))
                     guard let panel, panel.isVisible else { return }
-                    if !panel.frame.contains(NSEvent.mouseLocation) { remaining -= 1 }
+                    if self?.floatingAsk?.anchor !== panel, self?.requestedAsk != capture.id, !panel.frame.contains(NSEvent.mouseLocation) { remaining -= 1 }
                 }
                 dismiss()
             }
@@ -269,11 +292,84 @@ import UniformTypeIdentifiers
         var offset = DS.xl
         for panel in thumbnails.reversed() {
             let size = panel.frame.size
-            panel.setFrameOrigin(CGPoint(x: corner.isRight ? screen.visibleFrame.maxX - size.width - DS.xl : screen.visibleFrame.minX + DS.xl,
-                                         y: corner.isTop ? screen.visibleFrame.maxY - size.height - offset : screen.visibleFrame.minY + offset))
+            let origin = CGPoint(x: corner.isRight ? screen.visibleFrame.maxX - size.width - DS.xl : screen.visibleFrame.minX + DS.xl,
+                                         y: corner.isTop ? screen.visibleFrame.maxY - size.height - offset : screen.visibleFrame.minY + offset)
+            panel.destination = CGRect(origin: origin, size: size)
+            panel.onRight = corner.isRight
+            panel.move(to: origin, animated: panel.isVisible)
             offset += size.height + DS.md
         }
+        floatingAsk?.follow(animated: true)
     }
+    private func dismissThumbnail(_ panel: ThumbnailPanel) {
+        guard thumbnails.contains(panel) else { return }
+        if floatingAsk?.anchor === panel { closeAsk() }
+        thumbnails.removeAll { $0 === panel }
+        DS.Motion.dismiss(panel, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion) { panel.close() }
+        layoutThumbnails()
+    }
+
+    private func closeAsk(handoff: Bool = false) {
+        requestedAsk = nil; askSelection.id = nil
+        guard let panel = floatingAsk else { return }
+        floatingAsk = nil
+        if !handoff, !editors.contains(where: { $0.model === panel.editor && $0.window?.isVisible == true }) { panel.editor?.ask?.end() }
+        DS.Motion.dismiss(panel, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion) { panel.close() }
+    }
+
+    private func toggleAsk(for capture: CapturedImage, anchor: ThumbnailPanel) {
+        guard settings.preferences.assistant.isEnabled else { return }
+        if askSelection.id == capture.id || requestedAsk == capture.id { closeAsk(); return }
+        requestedAsk = capture.id
+        Task { [self] in
+            do {
+                let source: EditorModel
+                if let current = editors.first(where: { $0.model.document.id == capture.id && $0.window?.isVisible == true }) {
+                    source = current.model
+                } else {
+                    let document = try await makeDocument(capture)
+                    source = EditorModel(document: document)
+                    source.askOptions = AssistantWiring.options(settings.preferences.assistant)
+                    source.assistantFactory = AssistantWiring.factory
+                }
+                guard requestedAsk == capture.id, thumbnails.contains(anchor), settings.preferences.assistant.isEnabled else { return }
+                requestedAsk = nil
+                let panel = floatingAsk ?? AskPanelController()
+                if let previous = panel.editor, previous !== source, !editors.contains(where: { $0.model === previous && $0.window?.isVisible == true }) { previous.ask?.end() }
+                floatingAsk = panel; askSelection.id = capture.id
+                panel.onDismiss = { [weak self] in self?.closeAsk() }
+                panel.present(editor: source, beside: anchor) { [weak self] in
+                    guard let self else { return source }
+                    let target = openDocument(source.document, conversation: source.ask)
+                    closeAsk(handoff: true)
+                    return target
+                }
+            } catch {
+                guard requestedAsk == capture.id else { return }
+                requestedAsk = nil; showError(error.localizedDescription)
+            }
+        }
+    }
+
+    func updateAssistantPreferences() {
+        let prefs = settings.preferences.assistant
+        guard prefs != appliedAssistant else { return }
+        let old = appliedAssistant
+        appliedAssistant = prefs
+        let options = AssistantWiring.options(prefs)
+        if options == nil { closeAsk() }
+        let models = editors.map(\.model) + [floatingAsk?.editor].compactMap { $0 }
+        for model in models {
+            model.askOptions = options
+            if let options {
+                model.ask?.updateOptions(options, changedProvider: old?.provider != prefs.provider)
+            } else {
+                if model.inspector == "ask" { model.inspector = "" }
+                model.ask?.end(); model.ask = nil
+            }
+        }
+    }
+
     func preview(_ capture: CapturedImage) {
         if let editor=editors.first(where:{$0.model.document.id == capture.id}) {editor.present();return}
         Task {
@@ -292,7 +388,7 @@ import UniformTypeIdentifiers
         return document
     }
     func showHistory() {
-        if libraryWindow == nil { libraryWindow = HistoryController(store:history,open:{ [weak self] in self?.openDocument($0) }) }
+        if libraryWindow == nil { libraryWindow = HistoryController(store:history,open:{ [weak self] in _ = self?.openDocument($0) }) }
         libraryWindow?.present()
     }
     private func recognizeCapture(_ capture: CapturedImage, codes: Bool) async {
@@ -310,9 +406,16 @@ import UniformTypeIdentifiers
             }
         } catch { showError(error.localizedDescription) }
     }
-    func openDocument(_ document: CaptureDocument) {
-        if let existing=editors.first(where:{$0.model.document.id == document.id}) {existing.present();return}
+    @discardableResult func openDocument(_ document: CaptureDocument, conversation: AskModel? = nil) -> EditorModel {
+        if let existing = editors.first(where: { $0.model.document.id == document.id }) {
+            if let conversation { existing.model.ask = conversation; existing.model.openAsk() }
+            existing.present(); return existing.model
+        }
         let editor = EditorWindowController(document: document)
+        editor.model.askOptions = AssistantWiring.options(settings.preferences.assistant)
+        editor.model.assistantFactory = AssistantWiring.factory
+        if let conversation { editor.model.ask = conversation; editor.model.openAsk() }
+        NotificationCenter.default.addObserver(self, selector: #selector(editorWillClose(_:)), name: NSWindow.willCloseNotification, object: editor.window)
         editor.model.format = settings.preferences.fileFormat
         editor.model.toolShortcuts = settings.preferences.toolShortcuts
         editor.model.savedPresets = settings.preferences.backdropPresets
@@ -338,8 +441,16 @@ import UniformTypeIdentifiers
         editor.model.pinAction = { [weak self] image in self?.pinImage(image) }
         // Flush closed sessions before releasing them; the current document always wins over stale disk snapshots.
         for closed in editors where closed.window?.isVisible != true {closed.model.flushAutosave()}
-        editors.removeAll { $0.window?.isVisible != true }; editors.append(editor); editor.present()
+        editors.removeAll { $0.window?.isVisible != true }; editors.append(editor); editor.present(); return editor.model
     }
+    @objc private func editorWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow,
+              let editor = editors.first(where: { $0.window === window }), floatingAsk?.editor !== editor.model else { return }
+        editor.model.ask?.end()
+        editor.model.ask = nil
+        if editor.model.inspector == "ask" { editor.model.inspector = "" }
+    }
+
     func openFile(_ url: URL) {
         Task {
             do {
@@ -362,6 +473,8 @@ import UniformTypeIdentifiers
         preview(CapturedImage(image: image, scale: 1, source: "Clipboard"))
     }
     func flushEdits() async {
+        floatingAsk?.editor?.ask?.end()
+        editors.forEach { $0.model.ask?.end() }
         editors.forEach{$0.model.flushAutosave()}
         while !pendingSaves.isEmpty {
             let pending=Array(pendingSaves.values)
@@ -384,51 +497,74 @@ import UniformTypeIdentifiers
     }
 }
 
+@MainActor @Observable final class ThumbnailAskSelection {
+    var id: UUID?
+}
+
 struct ThumbnailView: View {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduced
     @LocalState private var hovering = false
     let capture: CapturedImage
+    var settings: SettingsStore?
+    var selection: ThumbnailAskSelection?
+    var captureID: UUID?
+    var ask: () -> Void = {}
     let open: () -> Void
     let copy: () -> Void
     let save: () -> Void
     let pin: () -> Void
     let dismiss: () -> Void
+
+    private var active: Bool { captureID != nil && selection?.id == captureID }
+    private var actions: [String] {
+        var seen = Set<String>()
+        return (settings?.preferences.customization.thumbnailActions ?? CustomizationPreferences.defaultThumbnailActions)
+            .filter { seen.insert($0).inserted && ($0 != "ask" || settings?.preferences.assistant.isEnabled != false) }
+    }
     var body: some View {
         ZStack {
             DS.panel(scheme)
-            Image(nsImage: NSImage(cgImage: capture.image, size: .zero)).resizable().scaledToFit().padding(6)
+            Image(decorative: capture.image, scale: 1).resizable().scaledToFit()
                 .onDrag { NSItemProvider(object: NSImage(cgImage: capture.image, size: .zero)) }
-            if hovering {
-                Color.black.opacity(0.38)
-                Button(action: open) { Label { Text("Edit") } icon: { Icon("pencil.tip.crop.circle", size: 16) } }.buttonStyle(PrimaryButtonStyle())
-                    .accessibilityLabel("Open in editor")
-            }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.white.opacity(0.14)))
-        .overlay(alignment: .topLeading) {
-            if hovering { chip { IconButton("xmark", label: "Dismiss", size: 24, action: dismiss) } }
-        }
+        .contentShape(Rectangle()).onTapGesture(perform: open)
+        .accessibilityLabel("Open capture in editor").accessibilityAddTraits(.isButton)
+        .clipShape(RoundedRectangle(cornerRadius: DS.Ask.bubble))
+        .overlay(RoundedRectangle(cornerRadius: DS.Ask.bubble).strokeBorder(active ? DS.accent : DS.hairline(scheme), lineWidth: active ? DS.stroke * 2 : DS.stroke))
         .overlay(alignment: .bottom) {
-            if hovering {
-                chip {
-                    IconButton("doc.on.doc", label: "Copy", size: 26, action: copy)
-                    IconButton("square.and.arrow.down", label: "Save as…", size: 26, action: save)
-                    IconButton("pin", label: "Pin to screen", size: 26, action: pin)
-                }
+            if hovering || active {
+                HStack(spacing: 0) {
+                    ForEach(Array(actions.enumerated()), id: \.element) { index, id in
+                        let item = button(id)
+                        Button(action: item.perform) {
+                            Icon(item.icon, weight: active && id == "ask" ? .fill : .regular, size: DS.iconSize)
+                                .foregroundStyle(active && id == "ask" ? DS.onAccent : Color.primary)
+                                .frame(maxWidth: DS.toolButton).frame(height: DS.Ask.send)
+                                .background(active && id == "ask" ? DS.accent : .clear, in: RoundedRectangle(cornerRadius: DS.controlRadius))
+                                .contentShape(Rectangle())
+                        }.buttonStyle(PressableStyle()).help(item.label).accessibilityLabel(item.label).staggeredAppear(index)
+                        if index + 1 < actions.count { Spacer(minLength: 0) }
+                    }
+                }.padding(DS.xs).modifier(GlassSurface(radius: DS.smallRadius)).padding(DS.sm)
+                    .transition(DS.Motion.reveal(from: .bottom, reduceMotion: reduced))
             } else {
-                HStack { Tag("\(capture.image.width) × \(capture.image.height)").background(DS.panel(scheme).opacity(0.9), in: Capsule()); Spacer() }.padding(DS.sm)
+                HStack { Tag("\(capture.image.width) × \(capture.image.height)").background(DS.panel(scheme), in: Capsule()); Spacer() }.padding(DS.sm)
             }
         }
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2, perform: open)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: hovering)
-        .padding(DS.sm)
-        .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
+        .animation(DS.Motion.panel(reduced), value: hovering || active)
+        .padding(DS.sm).shadow(color: DS.black.opacity(DS.shadowOpacity), radius: DS.md, y: DS.xs)
     }
-    private func chip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        HStack(spacing: 2) { content() }.padding(3).modifier(GlassSurface(radius: 11)).padding(DS.sm)
+    private func button(_ id: String) -> (icon: String, label: String, perform: () -> Void) {
+        switch id {
+        case "copy": ("copy", "Copy", copy)
+        case "save": ("download-simple", "Save as…", save)
+        case "pin": ("push-pin", "Pin to screen", pin)
+        case "ask": ("chat-circle-dots", "Ask about this capture", ask)
+        case "edit": ("pencil-simple", "Open in editor", open)
+        default: ("trash", "Dismiss thumbnail", dismiss)
+        }
     }
 }
 

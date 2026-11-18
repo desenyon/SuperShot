@@ -49,6 +49,7 @@ import Carbon
     private func applyPreferences() {
         // Preferences change on every slider tick, so only touch the app when a value that matters here actually changed.
         let preferences = settings.preferences
+        captures.updateAssistantPreferences()
         if appliedAppearance != preferences.appearance {
             appliedAppearance = preferences.appearance
             switch preferences.appearance {

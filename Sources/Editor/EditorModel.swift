@@ -1,4 +1,5 @@
 import AppKit
+import CoreText
 import Observation
 import Document
 import Render
@@ -21,8 +22,67 @@ import AI
     public var editingText: UUID?
     public var tool = "arrow" { didSet { if oldValue != tool { styles[oldValue] = style; style = styles[tool] ?? ToolStyle() } } }
     public var style = ToolStyle()
-    /// Right-hand panel: "", "layers", "info", "recognition", or "intelligence".
-    public var inspector = ""
+    /// The active right-hand panel, or an empty identifier when the panel is closed.
+    public var inspector = "" {
+        didSet { if inspector != "ask" { pickingAskRegion = false } }
+    }
+    public var ask: AskModel?
+    public var askOptions: AskOptions?
+    public var assistantFactory: AssistantFactory?
+    public var pickingAskRegion = false
+    public var highlightedAskRegion: CGRect?
+    @ObservationIgnored private var highlightTask: Task<Void, Never>?
+
+    @discardableResult public func openAsk() -> AskModel? {
+        guard let ask = prepareAsk() else { return nil }
+        inspector = "ask"
+        return ask
+    }
+
+    public func prepareAsk() -> AskModel? {
+        guard let askOptions, let assistantFactory else { return nil }
+        if ask == nil { ask = AskModel(options: askOptions, factory: assistantFactory) }
+        return ask
+    }
+
+    public func flashAskRegion(_ rect: CGRect) {
+        highlightTask?.cancel()
+        highlightedAskRegion = rect
+        highlightTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(2)); self?.highlightedAskRegion = nil } catch {}
+        }
+    }
+
+    func addReply(_ text: String) {
+        let bounds = document.visibleBounds
+        let inset = min(bounds.width, bounds.height) * 0.06
+        let area = bounds.insetBy(dx: inset, dy: inset)
+        var fontSize = min(style.fontSize, area.height / 1.4)
+        var lines: [String] = []
+        // The renderer draws explicit lines. Break with Core Text so the editable layer fits
+        // inside the visible crop even when a reply is much longer than the capture is wide.
+        while fontSize > 0 {
+            let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: fontSize, weight: .semibold)]
+            lines = text.components(separatedBy: .newlines).flatMap { paragraph -> [String] in
+                let source = paragraph as NSString
+                let typesetter = CTTypesetterCreateWithAttributedString(NSAttributedString(string: paragraph, attributes: attributes))
+                var start = 0, wrapped: [String] = []
+                while start < source.length {
+                    let count = max(1, CTTypesetterSuggestLineBreak(typesetter, start, area.width))
+                    wrapped.append(source.substring(with: NSRange(location: start, length: count)))
+                    start += count
+                }
+                return wrapped.isEmpty ? [""] : wrapped
+            }
+            if CGFloat(lines.count) * fontSize * 1.25 <= area.height || fontSize <= 1 { break }
+            fontSize *= 0.8
+        }
+        let height = min(area.height, CGFloat(lines.count) * fontSize * 1.25)
+        let rect = CGRect(origin: area.origin, size: CGSize(width: area.width, height: height))
+        let layer = Layer(kind: .text, rect: rect, color: style.color, text: lines.joined(separator: "\n"), fontSize: fontSize)
+        commit { $0.layers.append(layer) }
+        selected = [layer.id]; tool = "select"
+    }
     /// Left-hand backdrop panel.
     public var showBackdrop = true
     /// Where the inline text field sits, in canvas view coordinates.
