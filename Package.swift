@@ -7,7 +7,7 @@ let package = Package(
     products: [.executable(name: "SuperShot", targets: ["SuperShotApp"])],
     targets: [
         .target(name: "DesignSystem"),
-        .target(name: "Settings", dependencies: ["DesignSystem", "Hotkeys", "Document", "Export"]),
+        .target(name: "Settings", dependencies: ["DesignSystem", "Hotkeys", "Document", "Export", "AI"]),
         .target(name: "Capture", dependencies: ["DesignSystem"]),
         .target(name: "Export"),
         .target(name: "Document"),
