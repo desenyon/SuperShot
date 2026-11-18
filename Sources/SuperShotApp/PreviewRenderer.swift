@@ -1,4 +1,6 @@
 import AppKit
+import AI
+import Recognition
 import SwiftUI
 import DesignSystem
 import Document
@@ -19,10 +21,10 @@ import Export
             FileHandle.standardError.write(Data("Could not read fixture image\n".utf8)); return
         }
         if ProcessInfo.processInfo.environment["PREVIEW_BENCH"] != nil { benchmark(data: data, image: image); return }
-        let only = ProcessInfo.processInfo.environment["PREVIEW_ONLY"]
+        let filters = ProcessInfo.processInfo.environment["PREVIEW_ONLY"]?.split(separator: ",").map(String.init) ?? []
         for dark in [true, false] {
             let suffix = dark ? "dark" : "light"
-            for scene in scenes(data: data, image: image) where only == nil || scene.name.contains(only!) {
+            for scene in scenes(data: data, image: image) where filters.isEmpty || filters.contains(where: scene.name.contains) {
                 snapshot(scene.view, size: scene.size, dark: dark, to: output.appendingPathComponent("\(scene.name)-\(suffix).png"))
             }
         }
@@ -62,8 +64,80 @@ import Export
         let bare = EditorModel(document: plain)
         bare.tool = "select"; bare.inspector = "layers"
         list.append(Scene(name: "editor-plain", size: DS.editorMinimum, view: AnyView(EditorView(model: bare))))
+        for model in [editor, panels, bare] {
+            model.askOptions = AskOptions()
+            model.assistantFactory = { PreviewAssistantService(provider: $0) }
+        }
+        list.append(contentsOf: askScenes(data: data, image: image))
         list.append(contentsOf: appScenes(image: image))
         return list
+    }
+
+    private static func askScenes(data: Data, image: CGImage) -> [Scene] {
+        let size = DS.Ask.panelSize
+        let doc = CaptureDocument(original: data, width: image.width, height: image.height, source: "Fieldnotes — Workspace")
+        let account = AssistantAccount(plan: "Plus", toolVersion: "1.0", toolPath: "/preview")
+        let capture = CapturedImage(image: image, scale: 2, source: doc.source)
+        let tag = CGRect(x: 680, y: 510, width: 144, height: 42)
+        let selection = ThumbnailAskSelection(); selection.id = capture.id
+        func editor(_ messages: [AskMessage] = [], availability: AssistantAvailability = .ready(account), limited: Bool = false) -> EditorModel {
+            let model = EditorModel(document: doc)
+            let options = AskOptions(suggestions: ["Summarize", "Write alt text", "Next steps"])
+            let factory: AssistantFactory = { provider in
+                PreviewAssistantService(provider: provider, state: availability,
+                                        usage: .init(usedFraction: limited ? 1 : 0.18, resetsAt: limited ? Date(timeIntervalSince1970: 1_795_453_200) : nil, limitReached: limited))
+            }
+            model.tool = "select"; model.showBackdrop = false
+            model.askOptions = options; model.assistantFactory = factory
+            model.ask = AskModel(options: options, factory: factory, messages: messages); model.openAsk()
+            model.recognition = RecognitionResult(text: [TextRegion(text: "In progress", rect: tag)])
+            return model
+        }
+        let question = AskMessage(.user, "Which work item is still in progress?", attachments: ["Region 1 · 144 × 42"])
+        let reply = AskMessage(.assistant, "The **prototype handoff** is marked `In progress`. The design review is ready, and the team notes are done.")
+        let live = editor([question, reply, AskMessage(.user, "Write a short note for my team."),
+                           AskMessage(.assistant, "The design review is ready. We’re finishing the prototype handoff", status: .streaming)])
+        live.highlightedAskRegion = tag
+        let region = editor()
+        region.ask?.attach(tag, in: doc)
+        region.ask?.draft = "Who needs to follow up on this item?"
+        let signedOut = editor(availability: .signedOut(toolVersion: "1.0", toolPath: "/preview"))
+        let floating = editor([
+            AskMessage(.user, "What should I follow up on before sharing this project?"),
+            AskMessage(.assistant, """
+                The **prototype handoff** is the only item marked `In progress`.
+
+                1. Check with the person preparing the handoff before marking it complete.
+                2. The **design review** is ready, and the team notes are already done.
+                3. Use **Save project** to keep a copy of this workspace.
+                """)
+        ])
+        let thumb = ThumbnailView(capture: capture, selection: selection, captureID: capture.id, open: {}, copy: {}, save: {}, pin: {}, dismiss: {})
+        let attached = ZStack(alignment: .bottomTrailing) {
+            AskPreviewWallpaper(image: image)
+            HStack(alignment: .bottom, spacing: DS.xs) {
+                AskView(model: floating.ask!, editor: floating, close: {}, openEditor: { floating }).frame(width: size.width, height: size.height)
+                thumb.frame(width: DS.thumbnailSize.width, height: DS.thumbnailSize.height)
+            }.padding(DS.xl)
+        }
+        let consent = editor(), limited = editor(limited: true)
+        func state(_ model: EditorModel) -> some View {
+            ZStack {
+                AskPreviewWallpaper(image: nil)
+                AskView(model: model.ask!, editor: model, close: {}).frame(width: size.width, height: size.height)
+            }
+        }
+        return [
+            Scene(name: "editor-ask", size: DS.editorSize, view: AnyView(EditorView(model: live))),
+            Scene(name: "editor-ask-region", size: DS.editorSize, view: AnyView(EditorView(model: region))),
+            Scene(name: "editor-ask-signedout", size: DS.editorSize, view: AnyView(EditorView(model: signedOut))),
+            Scene(name: "thumbnail-ask", size: CGSize(width: 1080, height: 688), view: AnyView(attached)),
+            Scene(name: "ask-consent", size: CGSize(width: 460, height: 664), view: AnyView(state(consent).task {
+                guard let ask = consent.ask else { return }; await ask.refreshAvailability()
+                ask.draft = "What should I follow up on?"; ask.send(document: doc)
+            })),
+            Scene(name: "ask-limit", size: CGSize(width: 460, height: 664), view: AnyView(state(limited)))
+        ]
     }
 
     static func snapshot(_ view: AnyView, size: CGSize, dark: Bool, to url: URL) {
@@ -208,4 +282,20 @@ private struct Hosted: NSViewRepresentable {
     let view: NSView
     func makeNSView(context: Context) -> NSView { view }
     func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+private struct AskPreviewWallpaper: View {
+    let image: CGImage?
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            RadialGradient(colors: [DS.slate.opacity(0.35), DS.background(scheme)], center: .topLeading,
+                           startRadius: 0, endRadius: DS.editorSize.width).background(DS.background(scheme))
+            if let image {
+                Image(decorative: image, scale: 1).resizable().scaledToFit().frame(width: 600)
+                    .clipShape(RoundedRectangle(cornerRadius: DS.groupRadius)).shadow(radius: DS.xl)
+                    .padding(DS.xxl)
+            }
+        }
+    }
 }

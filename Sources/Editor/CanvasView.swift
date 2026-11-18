@@ -12,6 +12,7 @@ struct EditorCanvas: NSViewRepresentable {
         // Reading these registers them with Observation so the canvas updates when they change.
         _ = model.image; _ = model.selected; _ = model.zoom; _ = model.pan; _ = model.draft; _ = model.rasterExcluded
         _ = model.inspector; _ = model.showBackdrop; _ = model.tool; _ = model.recognition
+        _ = model.pickingAskRegion; _ = model.highlightedAskRegion; _ = model.ask?.regions.last?.id
         view.sync()
     }
 }
@@ -26,6 +27,11 @@ struct EditorCanvas: NSViewRepresentable {
     private let imageLayer = CALayer()
     private let overlay = CanvasOverlay()
 
+    private let askGuide = AskRegionGuide()
+    private var askHost: AskGuideHost?
+    private var askStart: CGPoint?
+    private var askRect: CGRect?
+    private var wasPicking = false
     private var start: CGPoint?
     private var points: [CGPoint] = []
     private var original: CaptureDocument?
@@ -76,7 +82,8 @@ struct EditorCanvas: NSViewRepresentable {
     /// The area left free by the floating panels and bars.
     private var available: CGRect {
         let left = model.showBackdrop ? DS.backdropPanelWidth + DS.edge + DS.canvasMargin : DS.canvasMargin
-        let right = model.inspector.isEmpty ? DS.canvasMargin : DS.sidePanelWidth + DS.edge + DS.canvasMargin
+        let panelWidth = model.inspector == "ask" ? DS.Ask.editorWidth : DS.sidePanelWidth
+        let right = model.inspector.isEmpty ? DS.canvasMargin : panelWidth + DS.edge + DS.canvasMargin
         return CGRect(x: left, y: DS.canvasTop, width: max(100, bounds.width - left - right),
                       height: max(100, bounds.height - DS.canvasTop - DS.canvasBottom))
     }
@@ -124,6 +131,7 @@ struct EditorCanvas: NSViewRepresentable {
         checkerLayer.frame = rect
         checkerLayer.shadowPath = CGPath(rect: CGRect(origin: .zero, size: rect.size), transform: nil)
         CATransaction.commit()
+        syncAskGuide()
         overlay.frame = bounds
         overlay.needsDisplay = true
         if abs(model.displayScale - factor) > 0.0001 {
@@ -133,8 +141,36 @@ struct EditorCanvas: NSViewRepresentable {
         window?.invalidateCursorRects(for: self)
     }
 
+    private func syncAskGuide() {
+        if model.pickingAskRegion && !wasPicking { window?.makeFirstResponder(self) }
+        wasPicking = model.pickingAskRegion
+        if !wasPicking { askStart = nil; askRect = nil }
+        var mark: AskRegionGuide.Mark?
+        if model.inspector == "ask", let ask = model.ask {
+            if let rect = askRect, !rect.isEmpty {
+                mark = .init(rect: viewRect(rect), label: "Region \(ask.nextRegion) · \(Int(rect.width)) × \(Int(rect.height))")
+            } else if let rect = model.highlightedAskRegion {
+                mark = .init(rect: viewRect(rect), label: nil)
+            } else if let region = ask.regions.last, region.document == model.document {
+                mark = .init(rect: viewRect(region.rect), label: region.label)
+            }
+        }
+        if mark != nil, askHost == nil {
+            let host = AskGuideHost(rootView: AskRegionOverlay(guide: askGuide))
+            host.sizingOptions = []; addSubview(host); askHost = host
+        }
+        if let askHost, askHost.frame != bounds { askHost.frame = bounds }
+        if askGuide.mark != mark { askGuide.mark = mark }
+    }
+
+    private func finishAskRegion() {
+        if let rect = askRect, !rect.isEmpty { model.ask?.attach(rect, in: model.current) }
+        model.pickingAskRegion = false
+        syncAskGuide()
+    }
+
     override func resetCursorRects() {
-        let cursor: NSCursor = model.tool == "select" ? .arrow : model.tool == "text" ? .iBeam : .crosshair
+        let cursor: NSCursor = model.pickingAskRegion ? .crosshair : model.tool == "select" ? .arrow : model.tool == "text" ? .iBeam : .crosshair
         addCursorRect(imageRect.intersection(bounds), cursor: cursor)
     }
 
@@ -142,6 +178,13 @@ struct EditorCanvas: NSViewRepresentable {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        if model.inspector == "ask", model.pickingAskRegion || event.modifierFlags.contains(.command) {
+            let point = imagePoint(event)
+            if model.document.visibleBounds.contains(point) {
+                model.pickingAskRegion = true; askStart = point; askRect = nil; syncAskGuide()
+            }
+            return
+        }
         if model.textPoint != nil { model.addText() }
         let point = imagePoint(event), location = convert(event.locationInWindow, from: nil)
         guard model.document.visibleBounds.insetBy(dx: -10, dy: -10).contains(point) else {
@@ -190,6 +233,13 @@ struct EditorCanvas: NSViewRepresentable {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if let askStart, model.pickingAskRegion {
+            let end = imagePoint(event)
+            askRect = CGRect(x: askStart.x, y: askStart.y, width: end.x - askStart.x, height: end.y - askStart.y)
+                .standardized.integral.intersection(model.document.visibleBounds)
+            syncAskGuide()
+            return
+        }
         if let previous = dragPan {
             let next = convert(event.locationInWindow, from: nil)
             model.pan.x += next.x - previous.x; model.pan.y += next.y - previous.y; dragPan = next
@@ -253,6 +303,9 @@ struct EditorCanvas: NSViewRepresentable {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if askStart != nil, model.pickingAskRegion {
+            mouseDragged(with: event); finishAskRegion(); return
+        }
         defer { start = nil; original = nil; points = []; dragPan = nil; grab = nil; overlay.crop = nil; overlay.marquee = nil; overlay.guides = []; overlay.needsDisplay = true }
         if let crop = overlay.crop, crop.width > 2, crop.height > 2 { model.commit { $0.crop = crop }; model.tool = "select"; return }
         if let draft = model.draft {
@@ -308,6 +361,11 @@ struct EditorCanvas: NSViewRepresentable {
     }
 
     override func keyDown(with event: NSEvent) {
+        if model.pickingAskRegion {
+            if event.keyCode == 53 { model.pickingAskRegion = false; syncAskGuide() }
+            else if event.keyCode == 36 { finishAskRegion() }
+            return
+        }
         if event.keyCode == 53 { model.preview(nil); model.selected = []; start = nil; overlay.crop = nil; model.cancelText(); return }
         if event.keyCode == 51 || event.keyCode == 117 { model.deleteSelection(); return }
         if (123...126).contains(event.keyCode) {
