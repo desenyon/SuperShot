@@ -380,7 +380,7 @@ private final class OverlayWindow: NSWindow { override var canBecomeKey: Bool { 
 /// The HUD has its own backing layer. Its entrance never invalidates the frozen screen.
 @MainActor private final class AreaActionBar: NSView {
     init(actions: [OverlayAction], labels: Bool, perform: @escaping (OverlayAction) -> Void) {
-        let size = CGSize(width: CGFloat(actions.count) * DS.Ask.cell + DS.sm,
+        let size = CGSize(width: CGFloat(actions.count) * (labels ? DS.Ask.labeledCellWidth : DS.Ask.cell) + DS.sm,
                           height: (labels ? DS.Ask.cell : DS.xxl) + DS.sm)
         super.init(frame: CGRect(origin: .zero, size: size))
         wantsLayer = true
@@ -432,7 +432,7 @@ private struct AreaActionCell: View {
                 if labels { Text(action.title).font(Font(DS.Ask.hudLabel)) }
             }
             .foregroundStyle(primary ? DS.onAccent : DS.white)
-            .frame(width: DS.Ask.cell, height: labels ? DS.Ask.cell : DS.xxl)
+            .frame(width: labels ? DS.Ask.labeledCellWidth : DS.Ask.cell, height: labels ? DS.Ask.cell : DS.xxl)
             .background(primary ? DS.accent : hovering ? Color(nsColor: DS.Ask.hudWash) : .clear,
                         in: RoundedRectangle(cornerRadius: DS.groupRadius))
             .contentShape(Rectangle())

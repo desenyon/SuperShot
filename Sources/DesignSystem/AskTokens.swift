@@ -7,6 +7,8 @@ public extension DS {
         public static let editorWidth: CGFloat = 360
         public static let thumbnail = CGSize(width: 56, height: 36)
         public static let cell: CGFloat = 44
+        /// Labeled cells need room for "Capture" at the HUD label size.
+        public static let labeledCellWidth: CGFloat = 56
         public static let send: CGFloat = 28
         public static let bubble: CGFloat = 14
         public static let hud = NSColor(white: 0.09, alpha: 0.96)

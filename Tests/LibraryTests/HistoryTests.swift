@@ -45,3 +45,39 @@ struct HistoryTests {
         #expect(try await store.all(query:"Reference 123").isEmpty)
     }
 }
+
+struct ConversationHistoryTests {
+    @Test func conversationsAreKeptSearchableAndRemovedWithTheirCapture() async throws {
+        let folder=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer{try? FileManager.default.removeItem(at:folder)}
+        let store=HistoryStore(folder:folder), capture=try HistoryTests().document()
+        // Not in History yet: nothing is written.
+        try await store.saveConversation([StoredMessage(role:"user",text:"Ignored")],id:capture.id)
+        #expect(try await store.conversation(capture.id).isEmpty)
+        try await store.save(capture)
+        let messages=[StoredMessage(role:"user",text:"What is the renewal error?",attachments:["Region 1 · 20 × 10"]),
+                      StoredMessage(role:"assistant",text:"The card verification failed.")]
+        try await store.saveConversation(messages,id:capture.id)
+        #expect(try await store.conversation(capture.id) == messages)
+        #expect(try await HistoryStore(folder:folder).all(query:"card verification").map(\.id) == [capture.id])
+        let file=folder.appendingPathComponent(capture.id.uuidString+".ask.json")
+        let mode=try FileManager.default.attributesOfItem(atPath:file.path)[.posixPermissions] as? NSNumber
+        #expect(mode?.intValue == 0o600)
+        // Re-saving the capture keeps its conversation.
+        try await store.save(capture)
+        #expect(try await store.all(query:"renewal").count == 1)
+        try await store.remove(capture.id)
+        #expect(!FileManager.default.fileExists(atPath:file.path))
+    }
+    @Test func turningTheSettingOffForgetsEveryConversation() async throws {
+        let folder=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer{try? FileManager.default.removeItem(at:folder)}
+        let store=HistoryStore(folder:folder), capture=try HistoryTests().document()
+        try await store.save(capture)
+        try await store.saveConversation([StoredMessage(role:"assistant",text:"Kept reply")],id:capture.id)
+        try await store.removeAllConversations()
+        #expect(try await store.conversation(capture.id).isEmpty)
+        #expect(try await store.all(query:"Kept reply").isEmpty)
+        #expect(try await store.all().count == 1)
+    }
+}

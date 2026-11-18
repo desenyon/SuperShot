@@ -338,6 +338,7 @@ import UniformTypeIdentifiers
                     source = EditorModel(document: document)
                     source.askOptions = AssistantWiring.options(settings.preferences.assistant)
                     source.assistantFactory = AssistantWiring.factory
+                    await keepConversations(for: source)
                 }
                 guard requestedAsk == capture.id, thumbnails.contains(anchor), settings.preferences.assistant.isEnabled else { return }
                 requestedAsk = nil
@@ -413,6 +414,24 @@ import UniformTypeIdentifiers
             }
         } catch { showError(error.localizedDescription) }
     }
+    /// Restores the conversation kept with this capture and saves new replies, when History and the setting allow.
+    private func keepConversations(for model: EditorModel) async {
+        let id = model.document.id
+        model.configureAsk = { [weak self] ask in
+            ask.onTranscript = { messages in self?.storeConversation(messages, id: id) }
+        }
+        guard settings.preferences.historyEnabled, settings.preferences.assistant.keepConversations,
+              let stored = try? await history.conversation(id), !stored.isEmpty, model.ask == nil else { return }
+        model.restoredAskMessages = stored.map { AskMessage($0.role == "user" ? .user : .assistant, $0.text, attachments: $0.attachments) }
+    }
+    private func storeConversation(_ messages: [AskMessage], id: UUID) {
+        guard settings.preferences.historyEnabled, settings.preferences.assistant.keepConversations else { return }
+        let stored = messages.map { StoredMessage(role: $0.role == .user ? "user" : "assistant", text: $0.text, attachments: $0.attachments) }
+        Task { [history] in try? await history.saveConversation(stored, id: id) }
+    }
+    /// Deletes every kept conversation. Called when the user turns the setting off.
+    func forgetConversations() { Task { [history] in try? await history.removeAllConversations() } }
+
     @discardableResult func openDocument(_ document: CaptureDocument, conversation: AskModel? = nil) -> EditorModel {
         if let existing = editors.first(where: { $0.model.document.id == document.id }) {
             if let conversation { existing.model.ask = conversation; existing.model.openAsk() }
@@ -424,6 +443,7 @@ import UniformTypeIdentifiers
         editor.model.askOptions = AssistantWiring.options(settings.preferences.assistant)
         editor.model.assistantFactory = AssistantWiring.factory
         if let conversation { editor.model.ask = conversation; editor.model.openAsk() }
+        else { Task { await keepConversations(for: editor.model) } }
         NotificationCenter.default.addObserver(self, selector: #selector(editorWillClose(_:)), name: NSWindow.willCloseNotification, object: editor.window)
         editor.model.format = settings.preferences.fileFormat
         editor.model.toolShortcuts = settings.preferences.toolShortcuts
@@ -616,14 +636,17 @@ struct CodeResultsView: View {
 }
 struct CountdownView: View {
     @Bindable var state: CountdownState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(spacing: DS.md) {
             ZStack {
                 Circle().stroke(Color.primary.opacity(0.12), lineWidth: 5)
                 Circle().trim(from: 0, to: CGFloat(state.seconds) / CGFloat(max(1, state.total)))
                     .stroke(DS.accent, style: StrokeStyle(lineWidth: 5, lineCap: .round)).rotationEffect(.degrees(-90))
-                    .animation(.linear(duration: 1), value: state.seconds)
-                Text("\(state.seconds)").font(.system(size: 44, weight: .bold, design: .rounded)).monospacedDigit().contentTransition(.numericText())
+                    .animation(DS.Motion.tick(reduceMotion), value: state.seconds)
+                Text("\(state.seconds)").font(.system(size: 44, weight: .bold, design: .rounded)).monospacedDigit()
+                    .contentTransition(reduceMotion ? .opacity : .numericText(countsDown: true))
+                    .animation(DS.Motion.arrive(reduceMotion), value: state.seconds)
             }.frame(width: 104, height: 104)
             Text("Set up your screen").font(DS.caption).foregroundStyle(.secondary)
             Button("Cancel", action: state.cancel).buttonStyle(QuietButtonStyle())

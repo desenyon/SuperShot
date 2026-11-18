@@ -48,9 +48,17 @@ struct EditorExportFeedback: Equatable {
         return ask
     }
 
+    /// A conversation kept with this capture, shown when Ask first opens.
+    public var restoredAskMessages: [AskMessage] = []
+    /// Lets the app attach persistence to each conversation this editor creates.
+    @ObservationIgnored public var configureAsk: (@MainActor (AskModel) -> Void)?
+
     public func prepareAsk() -> AskModel? {
         guard let askOptions, let assistantFactory else { return nil }
-        if ask == nil { ask = AskModel(options: askOptions, factory: assistantFactory) }
+        if ask == nil {
+            let created = AskModel(options: askOptions, factory: assistantFactory, messages: restoredAskMessages)
+            configureAsk?(created); ask = created
+        }
         return ask
     }
 

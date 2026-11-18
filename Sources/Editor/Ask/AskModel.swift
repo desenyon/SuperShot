@@ -85,9 +85,15 @@ public struct AskMessage: Identifiable, Equatable, Sendable {
     private var login: Task<Void, Never>?
     private var generation = UUID()
 
+    /// Called with the transcript whenever a reply finishes or the conversation is cleared,
+    /// so the app can keep it with the capture.
+    @ObservationIgnored public var onTranscript: (@MainActor ([AskMessage]) -> Void)?
+
     public init(options: AskOptions, factory: @escaping AssistantFactory, messages: [AskMessage] = []) {
         self.options = options; self.factory = factory; self.messages = messages
         service = factory(options.provider)
+        // A restored conversation has no live backend thread; carry it into the next one as context.
+        if !messages.isEmpty { rememberTranscript() }
     }
 
     isolated deinit {
@@ -248,6 +254,7 @@ public struct AskMessage: Identifiable, Equatable, Sendable {
         flushDeltas()
         if messages.last?.role == .assistant { messages[messages.count - 1].status = status }
         isSending = false; turn = nil
+        onTranscript?(messages.filter { $0.status == .done && !$0.text.isEmpty })
     }
 
     public func stop() {
@@ -305,6 +312,7 @@ public struct AskMessage: Identifiable, Equatable, Sendable {
         stop(); retireSession(); cancelConsent()
         messages = []; regions = []; draft = ""; pending = nil; summary = ""; nextRegion = 1
         consented = false; hidesDetails = false; error = nil; resubmittedMessageID = nil
+        onTranscript?([])
     }
 
     public func switchProvider(_ provider: AssistantProvider) {

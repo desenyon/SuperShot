@@ -12,9 +12,20 @@ public struct HistoryEntry: Codable, Identifiable, Sendable {
     public var width: Int
     public var height: Int
     public var text: String
-    public init(id: UUID, date: Date, title: String, width: Int, height: Int, text: String) {
+    /// Plain text of the saved Ask conversation, for search. Absent in older indexes.
+    public var conversation: String?
+    public init(id: UUID, date: Date, title: String, width: Int, height: Int, text: String, conversation: String? = nil) {
         self.id = id; self.date = date; self.title = title; self.width = width; self.height = height; self.text = text
+        self.conversation = conversation
     }
+}
+
+/// One message of an Ask conversation kept with its capture.
+public struct StoredMessage: Codable, Equatable, Sendable {
+    public var role: String
+    public var text: String
+    public var attachments: [String]
+    public init(role: String, text: String, attachments: [String] = []) { self.role = role; self.text = text; self.attachments = attachments }
 }
 public actor HistoryStore {
     public let folder: URL
@@ -46,7 +57,7 @@ public actor HistoryStore {
     public func all(query: String = "") throws -> [HistoryEntry] {
         try load()
         let needle = searchText(query)
-        return entries.filter {needle.isEmpty || searchText("\($0.title) \($0.text)").contains(needle)}.sorted{$0.date > $1.date}
+        return entries.filter {needle.isEmpty || searchText("\($0.title) \($0.text) \($0.conversation ?? "")").contains(needle)}.sorted{$0.date > $1.date}
     }
     private func searchText(_ text:String)->String {
         // OCR may split a word or a phrase across regions. Whitespace should
@@ -60,9 +71,10 @@ public actor HistoryStore {
         let size=DocumentRenderer.layout(document).size
         let preview=try DocumentRenderer.render(document,scale:min(1,480/max(size.width,size.height)))
         try ImageExport.encode(preview).write(to:thumbnailURL(document.id),options:.atomic)
-        let oldText=entries.first{$0.id == document.id}?.text ?? ""
+        let old=entries.first{$0.id == document.id}
         entries.removeAll{$0.id == document.id}
-        entries.append(HistoryEntry(id:document.id,date:document.date,title:document.source,width:Int(size.width),height:Int(size.height),text:text.isEmpty ? oldText:text))
+        entries.append(HistoryEntry(id:document.id,date:document.date,title:document.source,width:Int(size.width),height:Int(size.height),
+                                    text:text.isEmpty ? old?.text ?? "":text,conversation:old?.conversation))
         try persistIndex()
         try prune(days:retentionDays)
     }
@@ -73,7 +85,38 @@ public actor HistoryStore {
     public func document(_ id: UUID) throws -> CaptureDocument {try ProjectFile.decode(Data(contentsOf:projectURL(id)))}
     public func remove(_ id: UUID) throws {
         try load();entries.removeAll{$0.id == id};try persistIndex()
-        for url in [projectURL(id),thumbnailURL(id)] where FileManager.default.fileExists(atPath:url.path) {try FileManager.default.removeItem(at:url)}
+        for url in [projectURL(id),thumbnailURL(id),conversationURL(id)] where FileManager.default.fileExists(atPath:url.path) {try FileManager.default.removeItem(at:url)}
+    }
+    /// Keeps an Ask conversation with its capture. An empty list removes it.
+    /// Only captures already in History keep conversations, so retention and deletion cover them too.
+    public func saveConversation(_ messages: [StoredMessage], id: UUID) throws {
+        try load()
+        guard let index=entries.firstIndex(where:{$0.id == id}) else {return}
+        let url=conversationURL(id)
+        if messages.isEmpty {
+            if FileManager.default.fileExists(atPath:url.path) {try FileManager.default.removeItem(at:url)}
+            entries[index].conversation=nil
+        } else {
+            try JSONEncoder().encode(messages).write(to:url,options:[.atomic])
+            try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:url.path)
+            entries[index].conversation=messages.map(\.text).joined(separator:"\n")
+        }
+        try persistIndex()
+    }
+    public func conversation(_ id: UUID) throws -> [StoredMessage] {
+        let url=conversationURL(id)
+        guard FileManager.default.fileExists(atPath:url.path) else {return []}
+        return try JSONDecoder().decode([StoredMessage].self,from:Data(contentsOf:url))
+    }
+    /// Deletes every kept conversation, for when the user turns the setting off.
+    public func removeAllConversations() throws {
+        try load()
+        for index in entries.indices {
+            let url=conversationURL(entries[index].id)
+            if FileManager.default.fileExists(atPath:url.path) {try FileManager.default.removeItem(at:url)}
+            entries[index].conversation=nil
+        }
+        try persistIndex()
     }
     public func prune(days: Int) throws {
         guard days > 0 else{return}
@@ -82,5 +125,6 @@ public actor HistoryStore {
         for id in expired {try remove(id)}
     }
     public nonisolated func thumbnailURL(_ id: UUID) -> URL {folder.appendingPathComponent(id.uuidString+".png")}
+    private nonisolated func conversationURL(_ id: UUID) -> URL {folder.appendingPathComponent(id.uuidString+".ask.json")}
     private nonisolated func projectURL(_ id: UUID) -> URL {folder.appendingPathComponent(id.uuidString+".supershot")}
 }

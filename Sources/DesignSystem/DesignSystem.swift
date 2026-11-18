@@ -502,19 +502,11 @@ public struct Keycaps: View {
     }
 }
 
-/// The app glyph: a viewfinder inside an accent tile.
+/// The SuperShot logo. Kept for existing call sites; draws `BrandIcon`, the same art as the app icon.
 public struct BrandMark: View {
     private let size: CGFloat
     public init(size: CGFloat = 44) { self.size = size }
-    public var body: some View {
-        RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
-            .fill(LinearGradient(colors: [DS.color(0x2A2D34), DS.color(0x0E0F12)], startPoint: .topLeading, endPoint: .bottomTrailing))
-            .frame(width: size, height: size)
-            .overlay(RoundedRectangle(cornerRadius: size * 0.27, style: .continuous).strokeBorder(.white.opacity(0.12), lineWidth: 1))
-            .overlay(Icon("frame-corners", weight: .bold, size: size * 0.56).foregroundStyle(DS.color(0xA9C7FF)))
-            .shadow(color: .black.opacity(0.35), radius: size * 0.2, y: size * 0.08)
-            .accessibilityHidden(true)
-    }
+    public var body: some View { BrandIcon(size: size).accessibilityHidden(true) }
 }
 
 /// Small rounded tag for metadata such as dimensions.

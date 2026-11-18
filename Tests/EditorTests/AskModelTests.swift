@@ -194,8 +194,16 @@ extension AskModelTests {
         let canvas = CanvasView(model: editor)
         canvas.frame = CGRect(x: 0, y: 0, width: 900, height: 600)
         canvas.sync()
-        let raster = try #require(canvas.layer?.sublayers?.first { $0.contents != nil })
-        let start = CGPoint(x: raster.frame.midX, y: raster.frame.midY)
+        // The raster lives in the canvas stage; find it at any depth and use canvas coordinates.
+        func rasterLayer(in layer: CALayer?) -> CALayer? {
+            guard let layer else { return nil }
+            if layer.contents != nil { return layer }
+            return layer.sublayers?.lazy.compactMap { rasterLayer(in: $0) }.first
+        }
+        let root = try #require(canvas.layer)
+        let raster = try #require(rasterLayer(in: root))
+        let frame = raster.superlayer.map { $0.convert(raster.frame, to: root) } ?? raster.frame
+        let start = CGPoint(x: frame.midX, y: frame.midY)
         func event(_ type: NSEvent.EventType, dx: CGFloat = 0, dy: CGFloat = 0) throws -> NSEvent {
             let point = canvas.convert(CGPoint(x: start.x + dx, y: start.y + dy), to: nil)
             return try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
@@ -216,5 +224,31 @@ extension AskModelTests {
         canvas.keyDown(with: escape)
         canvas.mouseUp(with: try event(.leftMouseUp, dx: 12, dy: 5))
         #expect(!editor.pickingAskRegion && model.regions.count == 1 && editor.document == doc)
+    }
+}
+
+extension AskModelTests {
+    @Test func finishedRepliesReachTheTranscriptHookAndClearingEmptiesIt() async throws {
+        let doc = try fixture(), session = ScriptedSession(), model = await make(session)
+        var reported: [[AskMessage]] = []
+        model.onTranscript = { reported.append($0) }
+        model.draft = "Summarize"; model.send(document: doc)
+        try await wait { session.state.withLock { $0.prompts.count == 1 } }
+        session.yield(.delta("Short summary")); session.yield(.done)
+        try await wait { !model.isSending }
+        #expect(reported.last?.map(\.text) == ["Summarize", "Short summary"])
+        model.newConversation()
+        #expect(reported.last?.isEmpty == true)
+    }
+    @Test func restoredConversationIsShownAndCarriedIntoTheNextThread() async throws {
+        let doc = try fixture(), session = ScriptedSession()
+        let model = AskModel(options: AskOptions(confirmBeforeSending: false, includeRecognizedText: false),
+                             factory: { ScriptedAssistant(provider: $0, session: session) },
+                             messages: [AskMessage(.user, "Earlier question"), AskMessage(.assistant, "Earlier answer")])
+        await model.refreshAvailability()
+        #expect(model.messages.count == 2 && model.includesEarlierMessages)
+        model.draft = "Follow up"; model.send(document: doc)
+        try await wait { session.state.withLock { $0.prompts.count == 1 } }
+        #expect(session.state.withLock { $0.prompts.first?.contains("Earlier answer") == true })
     }
 }

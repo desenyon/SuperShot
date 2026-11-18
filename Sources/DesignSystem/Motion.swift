@@ -27,6 +27,8 @@ public extension DS {
         public static func gentle(_ reduceMotion: Bool) -> Animation {
             reduceMotion ? .easeOut(duration: 0.14) : .smooth(duration: 0.32)
         }
+        /// A countdown ring draining one step per second. Linear on purpose: it shows elapsed time.
+        public static func tick(_ reduceMotion: Bool) -> Animation? { reduceMotion ? nil : .linear(duration: 1) }
         /// Hover washes and highlights. Short enough to feel instant.
         public static func hover(_ reduceMotion: Bool) -> Animation { .easeOut(duration: reduceMotion ? 0.08 : 0.14) }
         /// Delay for the `index`th item of a list that appears together (menus, grids, chips).

@@ -17,6 +17,7 @@ import Carbon
     private var appliedAppearance: AppAppearance?
     private var appliedDockIcon: Bool?
     private lazy var captures = CaptureController(settings: settings, permission: permission, requestPermission: { [weak self] in self?.showSettings() })
+    private var appliedKeepConversations: Bool?
     private var statusItem: NSStatusItem?
     private var welcomeWindow: NSWindow?
     private var settingsWindow: NSWindow?
@@ -58,6 +59,8 @@ import Carbon
             case .light: NSApp.appearance = NSAppearance(named: .aqua)
             }
         }
+        if appliedKeepConversations == true && !preferences.assistant.keepConversations { captures.forgetConversations() }
+        appliedKeepConversations = preferences.assistant.keepConversations
         let theme = ThemeState.shared, look = preferences.customization
         // Assigning an @Observable property invalidates its readers even when unchanged; guard so slider ticks stay free.
         if theme.accent != look.accent { theme.accent = look.accent }
