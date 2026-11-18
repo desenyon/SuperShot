@@ -15,7 +15,7 @@ cp "$bin_path/SuperShot" "$app/Contents/MacOS/SuperShot"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :SuperShotBuildConfiguration string $configuration" "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :SuperShotBuildDate string $(date -u +%Y-%m-%dT%H:%M:%SZ)" "$app/Contents/Info.plist"
-swift scripts/make-icon.swift .build/AppIcon.png
+"$bin_path/SuperShot" --render-app-icon "$PWD/.build/AppIcon.png"
 for size in 16 32 128 256 512; do
     sips -z "$size" "$size" .build/AppIcon.png --out ".build/AppIcon.iconset/icon_${size}x${size}.png" >/dev/null
     double=$((size * 2))

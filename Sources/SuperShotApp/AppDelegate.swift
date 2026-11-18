@@ -150,7 +150,7 @@ import Carbon
 
         if statusItem == nil {
             let status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-            status.button?.image = Icons.image("viewfinder", size: 16)
+            status.button?.image = Brand.menuBarImage()
             status.button?.toolTip = "SuperShot"
             statusItem = status
         }
