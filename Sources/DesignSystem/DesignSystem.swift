@@ -215,9 +215,13 @@ public struct GlassSurface: ViewModifier {
     private let radius: CGFloat
     private let tint: Color?
     private let interactive: Bool
+    private let backing: Color?
+    private let showsShadow: Bool
     /// `tint` colors the glass itself (for a primary control); `interactive` makes it respond to the pointer.
-    public init(radius: CGFloat = DS.radius, tint: Color? = nil, interactive: Bool = false) {
-        self.radius = radius; self.tint = tint; self.interactive = interactive
+    public init(radius: CGFloat = DS.radius, tint: Color? = nil, interactive: Bool = false, backing: Color? = nil,
+                showsShadow: Bool = true) {
+        self.radius = radius; self.tint = tint; self.interactive = interactive; self.backing = backing
+        self.showsShadow = showsShadow
     }
     public func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
@@ -225,11 +229,11 @@ public struct GlassSurface: ViewModifier {
             content
                 .background(tint ?? DS.panel(scheme), in: shape)
                 .overlay(shape.strokeBorder(tint == nil ? DS.hairline(scheme) : Color.white.opacity(DS.outlineOpacity), lineWidth: DS.stroke))
-                .shadow(color: .black.opacity(scheme == .dark ? 0.45 : 0.14), radius: DS.md, y: DS.xs)
+                .shadow(color: showsShadow ? .black.opacity(scheme == .dark ? 0.45 : 0.14) : .clear, radius: DS.md, y: DS.xs)
         } else {
             // System glass tints only faintly; a solid tint layer inside the shape keeps primary controls legible on any backdrop.
             content
-                .background { if let tint { shape.fill(tint.opacity(0.9)) } }
+                .background { if let fill = tint?.opacity(0.9) ?? backing { shape.fill(fill) } }
                 .glassEffect(Glass.regular.tint(tint).interactive(interactive), in: shape)
         }
     }

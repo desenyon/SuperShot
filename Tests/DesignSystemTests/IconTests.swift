@@ -3,6 +3,15 @@ import AppKit
 @testable import DesignSystem
 
 struct IconTests {
+    @Test func workspaceIconsAreAvailableAtEveryWeight() {
+        for name in ["film-strip", "video-camera", "scissors", "speaker-high", "speaker-slash", "shield-warning"] {
+            #expect(Icons.contains(name))
+            for weight in [IconWeight.regular, .fill, .bold] {
+                #expect(Icons.table(weight)[name] != nil)
+            }
+        }
+    }
+
     @Test func everyLegacyNameResolvesToAnEmbeddedSVG() {
         for (sf, phosphor) in Icons.legacy {
             #expect(Icons.contains(sf), "\(sf) → \(phosphor) is not embedded")

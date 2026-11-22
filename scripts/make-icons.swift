@@ -20,7 +20,7 @@ sign-out terminal-window stop paper-plane-tilt crosshair-simple crop arrow-bend-
 eyedropper folder folder-open power broom hash list-numbers bounding-box corners-out square-half aperture arrows-clockwise
 link globe file-image cloud-slash sun moon circle-dashed list command arrow-elbow-down-left pause play arrow-down arrow-left
 arrow-right swap layout sidebar-simple dots-nine pencil-simple-line note-pencil arrows-horizontal arrows-vertical
-wrench lightbulb book-open-text trend-up chat-circle-text
+wrench lightbulb book-open-text trend-up chat-circle-text film-strip video-camera scissors speaker-high speaker-slash
 """
 .split(whereSeparator: \.isWhitespace).map(String.init)
 let weights = ["regular", "fill", "bold"]
