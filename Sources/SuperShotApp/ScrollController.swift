@@ -38,10 +38,18 @@ import ApplicationServices
                 do {
                     try await Task.sleep(for:.milliseconds(450))
                     let frame=try await service.screen(id:display)
-                    guard !Task.isCancelled,let crop=frame.image.cropping(to:area) else{break}
+                    guard !Task.isCancelled else { break }
+                    guard let crop = frame.image.cropping(to: area), crop.width == first.image.width, crop.height == first.image.height else {
+                        model.stopWithMessage("The selected area changed. Finish with the captured frames or start again.")
+                        break
+                    }
                     let (image,count,changed)=try await accumulator.append(crop)
                     guard !Task.isCancelled else{break}
-                    if changed{model.preview=image;model.frames=count;model.message="\(image.height) pixels captured"}
+                    if changed {
+                        model.preview = image
+                        model.frames = count
+                        model.message = model.autoScroll ? "Auto-scrolling…" : "Keep scrolling, or finish the capture."
+                    }
                     if model.autoScroll && AXIsProcessTrusted() {
                         let event=CGEvent(scrollWheelEvent2Source:nil,units:.pixel,wheelCount:1,wheel1:-120,wheel2:0,wheel3:0)
                         let displayBounds=CGDisplayBounds(display)
@@ -49,13 +57,29 @@ import ApplicationServices
                         event?.post(tap:.cghidEventTap)
                     }
                 } catch is CancellationError {break}
-                catch StitchError.insufficientOverlap {model.message="Scroll slowly; keep overlapping content visible."}
-                catch {model.message=error.localizedDescription;model.stopped=true;break}
+                catch StitchError.insufficientOverlap { model.pauseForOverlap() }
+                catch { model.stopWithMessage(error.localizedDescription); break }
             }
             if self?.sessionID == token {self?.task=nil}
         }
     }
     private func stop(){task?.cancel();task=nil;panel?.close();panel=nil;model=nil}
+}
+
+extension ScrollModel {
+    func pauseForOverlap() {
+        let wasAutomatic = autoScroll
+        autoScroll = false
+        message = wasAutomatic
+            ? "Auto-scroll paused. Scroll back until the previews overlap, then continue slowly."
+            : "Scroll back until the previews overlap, then continue slowly."
+    }
+
+    func stopWithMessage(_ message: String) {
+        autoScroll = false
+        stopped = true
+        self.message = message
+    }
 }
 struct ScrollPanel: View {
     @Bindable var model: ScrollModel
@@ -92,9 +116,9 @@ struct ScrollPanel: View {
             HStack {
                 Button("Cancel", action: model.cancel).buttonStyle(QuietButtonStyle())
                 Spacer()
-                Button("Done", action: model.finish).buttonStyle(PrimaryButtonStyle())
+                Button("Finish capture", action: model.finish).buttonStyle(PrimaryButtonStyle())
             }
         }
-        .padding(DS.lg).modifier(GlassSurface()).padding(DS.sm)
+        .padding(DS.md).modifier(GlassSurface(radius: DS.lg)).padding(DS.sm)
     }
 }

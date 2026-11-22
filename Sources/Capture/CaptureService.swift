@@ -8,8 +8,16 @@ public struct CapturedImage: Sendable {
     public let scale: CGFloat
     public let date: Date
     public let source: String
-    public init(image: CGImage, scale: CGFloat, source: String) {
-        self.id = UUID(); self.image = image; self.scale = scale; self.date = Date(); self.source = source
+    public let applicationName: String?
+    public let windowTitle: String?
+    public init(image: CGImage, scale: CGFloat, source: String, id: UUID = UUID(), date: Date = .now,
+                applicationName: String? = nil, windowTitle: String? = nil) {
+        self.id = id; self.image = image; self.scale = scale; self.date = date; self.source = source
+        self.applicationName = applicationName; self.windowTitle = windowTitle
+    }
+    public func replacingImage(_ image: CGImage) -> CapturedImage {
+        CapturedImage(image: image, scale: scale, source: source, id: id, date: date,
+                      applicationName: applicationName, windowTitle: windowTitle)
     }
 }
 public struct CaptureWindow: Sendable, Identifiable {
@@ -37,7 +45,7 @@ public actor CaptureService {
     public func invalidate() { displayContent = nil }
 
     public func screen(id: CGDirectDisplayID, cursor: Bool = false, hideDesktopIcons: Bool = false) async throws -> CapturedImage {
-        if displayContent?.displays.first(where: { $0.displayID == id })?.frame.size != CGDisplayBounds(id).size {
+        if hideDesktopIcons || displayContent?.displays.first(where: { $0.displayID == id })?.frame.size != CGDisplayBounds(id).size {
             try await prepare()
         }
         guard let content = displayContent else { throw CaptureFailure.missingDisplay }
@@ -45,7 +53,7 @@ public actor CaptureService {
         let excluded = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier || (hideDesktopIcons && $0.bundleIdentifier == "com.apple.finder") }
         let finderWindows = hideDesktopIcons ? content.windows.filter { $0.owningApplication?.bundleIdentifier == "com.apple.finder" && $0.windowLayer == 0 } : []
         let filter = SCContentFilter(display: display, excludingApplications: excluded, exceptingWindows: finderWindows)
-        return try await capture(filter: filter, cursor: cursor, source: "Display \(id)")
+        return try await capture(filter: filter, displayID: id, cursor: cursor, source: "Display \(id)")
     }
     public func windows() async throws -> [CaptureWindow] {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
@@ -59,9 +67,17 @@ public actor CaptureService {
     public func window(id: CGWindowID, cursor: Bool = false, keepShadow: Bool = false) async throws -> CapturedImage {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         guard let window = content.windows.first(where: { $0.windowID == id }) else { throw CaptureFailure.missingWindow }
-        return try await capture(filter: SCContentFilter(desktopIndependentWindow: window), cursor: cursor, source: [window.owningApplication?.applicationName,window.title].compactMap{$0}.joined(separator:" — "), keepShadow: keepShadow)
+        let app = window.owningApplication?.applicationName
+        let title = window.title
+        let name = [app, title].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " — ")
+        let center = CGPoint(x: window.frame.midX, y: window.frame.midY)
+        let displayID = content.displays.first(where: { $0.frame.contains(center) })?.displayID ?? CGMainDisplayID()
+        return try await capture(filter: SCContentFilter(desktopIndependentWindow: window), displayID: displayID,
+                                 cursor: cursor, source: name.isEmpty ? "Window" : name, keepShadow: keepShadow,
+                                 app: app, title: title)
     }
-    private func capture(filter: SCContentFilter, cursor: Bool, source: String, keepShadow: Bool = false) async throws -> CapturedImage {
+    private func capture(filter: SCContentFilter, displayID: CGDirectDisplayID, cursor: Bool, source: String,
+                         keepShadow: Bool = false, app: String? = nil, title: String? = nil) async throws -> CapturedImage {
         let config = SCStreamConfiguration()
         let scale = CGFloat(filter.pointPixelScale)
         // Capture every native pixel: round instead of truncating, and never let the system rescale.
@@ -69,13 +85,13 @@ public actor CaptureService {
         config.height = Int((filter.contentRect.height * scale).rounded())
         config.scalesToFit = false
         // Keep wide-gamut color on displays that have it instead of squeezing the capture into sRGB.
-        let wideGamut = CGDisplayCopyColorSpace(CGMainDisplayID()).isWideGamutRGB
+        let wideGamut = CGDisplayCopyColorSpace(displayID).isWideGamutRGB
         config.colorSpaceName = wideGamut ? CGColorSpace.displayP3 : CGColorSpace.sRGB
         config.showsCursor = cursor
         config.ignoreShadowsSingleWindow = !keepShadow
         config.captureResolution = .best
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
-        return CapturedImage(image: image, scale: scale, source: source)
+        return CapturedImage(image: image, scale: scale, source: source, applicationName: app, windowTitle: title)
     }
 }
 
