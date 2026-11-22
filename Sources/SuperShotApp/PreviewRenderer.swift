@@ -7,7 +7,6 @@ import Document
 import Render
 import Editor
 import Settings
-import AI
 import Capture
 import Library
 import Export
@@ -38,17 +37,19 @@ import Export
                     paper.fill = .solid; paper.color = .white
                     model.savedPresets = [BackdropPreset(name: "Lagoon", backdrop: model.document.backdrop),
                                           BackdropPreset(name: "Paper", backdrop: paper)]
+                    model.defaultBackdrop = paper
+                    model.importPresetAction = {}
                     let locked = PinState(image: image)
                     locked.locked = true
                     let customScenes = [
                         Scene(name: "editor-compact", size: scene.size, view: AnyView(EditorView(model: model, chrome: compactPalette))),
                         Scene(name: "editor-solid", size: scene.size, view: AnyView(EditorView(model: model))),
-                        Scene(name: "editor-backdrop-presets", size: CGSize(width: 288, height: 200),
-                              view: AnyView(BackdropPresets(model: model).fixedSize().modifier(GlassSurface()).padding(DS.sm))),
-                        Scene(name: "editor-export-options", size: CGSize(width: 200, height: 380),
-                              view: AnyView(ExportOptions(model: model, dismiss: {}).modifier(GlassSurface()).padding(DS.sm))),
-                        Scene(name: "pin-opacity", size: CGSize(width: 200, height: 96),
-                              view: AnyView(PinOpacityControl(state: PinState(image: image, opacity: 0.75)).modifier(GlassSurface()).padding(DS.sm))),
+                        Scene(name: "editor-backdrop-presets", size: CGSize(width: 340, height: 250),
+                              view: AnyView(BackdropPresets(model: model).fixedSize().modifier(GlassSurface(radius: DS.md)).padding(DS.sm))),
+                        Scene(name: "editor-export-options", size: CGSize(width: DS.backdropPanelWidth + DS.lg, height: 380),
+                              view: AnyView(ExportOptions(model: model, dismiss: {}).modifier(GlassSurface(radius: DS.md)).padding(DS.sm))),
+                        Scene(name: "pin-opacity", size: CGSize(width: DS.pinPopoverWidth + DS.lg, height: 128),
+                              view: AnyView(PinOpacityControl(state: PinState(image: image, opacity: 0.75)).modifier(GlassSurface(radius: DS.md)).padding(DS.sm))),
                         Scene(name: "pin-locked", size: CGSize(width: 420, height: 270), view: AnyView(PinView(state: locked)))
                     ]
                     for variant in customScenes where filters.isEmpty || filters.contains(where: variant.name.contains) {
@@ -99,6 +100,21 @@ import Export
         let bare = EditorModel(document: plain)
         bare.tool = "select"; bare.inspector = "layers"
         list.append(Scene(name: "editor-plain", size: DS.editorMinimum, view: AnyView(EditorView(model: bare))))
+        let layers = EditorModel(document: document(data, image))
+        layers.inspector = "layers"
+        list.append(Scene(name: "editor-layers", size: DS.editorSize, view: AnyView(EditorView(model: layers))))
+        let recognized = EditorModel(document: document(data, image))
+        recognized.inspector = "recognition"
+        recognized.recognition = RecognitionResult(text: [
+            TextRegion(text: "A clearer kind of work.", rect: CGRect(x: 60, y: 175, width: 600, height: 70)),
+            TextRegion(text: "Prototype handoff", rect: CGRect(x: 70, y: 460, width: 350, height: 36)),
+            TextRegion(text: "In progress", rect: CGRect(x: 635, y: 460, width: 180, height: 36))
+        ])
+        list.append(Scene(name: "editor-text", size: DS.editorSize, view: AnyView(EditorView(model: recognized))))
+        let watermark = EditorModel(document: document(data, image))
+        watermark.backdropSection = .watermark
+        watermark.commit { $0.backdrop.watermark = ImageWatermark(text: "Fieldnotes · Review") }
+        list.append(Scene(name: "editor-watermark", size: DS.editorSize, view: AnyView(EditorView(model: watermark))))
         for model in [editor, panels, bare] {
             model.askOptions = AskOptions()
             model.assistantFactory = { PreviewAssistantService(provider: $0) }
@@ -154,7 +170,7 @@ import Export
             AskPreviewWallpaper(image: image)
             HStack(alignment: .bottom, spacing: DS.xs) {
                 AskView(model: floating.ask!, editor: floating, close: {}, openEditor: { floating }).frame(width: size.width, height: size.height)
-                thumb.frame(width: DS.thumbnailSize.width, height: DS.thumbnailSize.height)
+                thumb.frame(width: DS.thumbnailSize.width, height: DS.thumbnailSize.height + DS.xxl)
             }.padding(DS.xl)
         }
         let consent = editor(), limited = editor(limited: true), empty = editor()
@@ -204,16 +220,23 @@ extension PreviewRenderer {
         var list: [Scene] = []
         let suite = "SuperShot.preview.\(UUID().uuidString)"
         let store = SettingsStore(defaults: UserDefaults(suiteName: suite)!)
+        func settings(_ section: SettingsView.Section, access: Bool = true, preferences: SettingsStore? = nil) -> SettingsView {
+            SettingsView(store: preferences ?? store, hasScreenAccess: access, initialSection: section,
+                         openLibrary: {}, openRecordingSetup: {}, openWebpageCapture: {}, openReviewLinks: {}, openPrivacy: {})
+        }
         for section in SettingsView.Section.allCases where section != .assistant {
             let name = section == .floating ? "floating" : section.rawValue.lowercased()
             list.append(Scene(name: "settings-\(name)", size: DS.settingsSize,
-                              view: AnyView(SettingsView(store: store, hasScreenAccess: true, initialSection: section, openPrivacy: {}))))
+                              view: AnyView(settings(section))))
             list.append(Scene(name: "settings-narrow-\(name)", size: CGSize(width: 680, height: 1600),
-                              view: AnyView(SettingsView(store: store, hasScreenAccess: true, initialSection: section, openPrivacy: {}))))
+                              view: AnyView(settings(section))))
             list.append(Scene(name: "settings-accessible-\(name)", size: DS.settingsSize,
-                              view: AnyView(SettingsView(store: store, hasScreenAccess: true, initialSection: section, openPrivacy: {})
-                                .settingsAccessibilityPreview())))
+                              view: AnyView(settings(section).settingsAccessibilityPreview())))
         }
+        list.append(Scene(name: "settings-sidebar-collapsed", size: DS.settingsSize,
+                          view: AnyView(settings(.capture).settingsSidebarPreview(collapsed: true))))
+        list.append(Scene(name: "settings-sidebar-search", size: DS.settingsSize,
+                          view: AnyView(settings(.floating).settingsSidebarPreview(query: "pin unlock"))))
         // MARK: Appearance and Assistant fixtures (never contact the installed CLI services).
         let signedIn = AssistantAvailability.ready(AssistantAccount(email: "you@example.com", plan: "Plus",
             toolVersion: "0.169.0", toolPath: "/preview/codex"))
@@ -224,7 +247,7 @@ extension PreviewRenderer {
                     .signedOut(toolVersion: "2.1.325", toolPath: "/preview/claude")
                 return PreviewAssistantService(provider: provider, state: provider == .chatgpt ? state : claude,
                     usage: AssistantUsage(usedFraction: 0.18, resetsAt: Date(timeIntervalSince1970: 1_795_456_800)))
-            }, openPrivacy: {})
+            }, openLibrary: {}, openRecordingSetup: {}, openWebpageCapture: {}, openReviewLinks: {}, openPrivacy: {})
             return Scene(name: name, size: size, view: accessible ? AnyView(view.settingsAccessibilityPreview()) : AnyView(view))
         }
         list.append(assistantScene("settings-assistant", DS.settingsSize, signedIn))
@@ -236,42 +259,75 @@ extension PreviewRenderer {
         toolbarStore.preferences.customization.density = .compact
         toolbarStore.preferences.customization.overlayActions = ["capture", "ask", "copy", "text"]
         list.append(Scene(name: "settings-appearance-toolbars", size: CGSize(width: 680, height: 1100),
-                          view: AnyView(SettingsView(store: toolbarStore, hasScreenAccess: true, initialSection: .appearance,
-                                                     openPrivacy: {}).settingsToolbarEditingPreview())))
+                          view: AnyView(settings(.appearance, preferences: toolbarStore).settingsToolbarEditingPreview())))
         // MARK: End settings fixtures
 
         for section in [SettingsView.Section.capture, .output, .shortcuts, .floating] {
             list.append(Scene(name: "settings-full-\(section == .floating ? "floating" : section.rawValue.lowercased())", size: CGSize(width: DS.settingsSize.width, height: 1600),
-                              view: AnyView(SettingsView(store: store, hasScreenAccess: true, initialSection: section, openPrivacy: {}))))
+                              view: AnyView(settings(section))))
         }
         list.append(Scene(name: "settings-small", size: CGSize(width: 680, height: 440),
-                          view: AnyView(SettingsView(store: store, hasScreenAccess: true, initialSection: .floating, openPrivacy: {}))))
+                          view: AnyView(settings(.floating))))
         let quickStore = SettingsStore(defaults: UserDefaults(suiteName: suite + ".quick")!)
         quickStore.preferences.autoCopyScreenshots = true
         quickStore.preferences.captureOnRelease = true
         quickStore.preferences.modeActions = ["screen": [.copy, .save], "window": [.thumbnail, .pin], "scrolling": []]
         let longStore = SettingsStore(defaults: UserDefaults(suiteName: suite + ".long")!)
+        longStore.preferences.fileFormat = "public.jpeg"
+        longStore.preferences.keepExportUpdated = true
         longStore.preferences.saveFolder = "/Volumes/Shared Work/Design Reviews/Release Candidates/November 2026/Retina screenshots and annotated reference images"
         longStore.preferences.backdropPresets = [BackdropPreset(name: "Product documentation with generous margins and a custom desktop background", backdrop: Backdrop())]
         longStore.shortcutError = "That shortcut is already used by another SuperShot action. Choose a different combination."
         for section in [SettingsView.Section.output, .shortcuts] {
             list.append(Scene(name: "settings-long-\(section.rawValue.lowercased())", size: CGSize(width: 680, height: 1600),
-                              view: AnyView(SettingsView(store: longStore, hasScreenAccess: true, initialSection: section, openPrivacy: {}))))
+                              view: AnyView(settings(section, preferences: longStore))))
         }
         list.append(Scene(name: "settings-quick-capture", size: DS.settingsSize,
-                          view: AnyView(SettingsView(store: quickStore, hasScreenAccess: true, initialSection: .capture, openPrivacy: {}))))
+                          view: AnyView(settings(.capture, preferences: quickStore))))
         list.append(Scene(name: "settings-small-capture", size: CGSize(width: 680, height: 440),
-                          view: AnyView(SettingsView(store: store, hasScreenAccess: true, initialSection: .capture, openPrivacy: {}))))
-        for (name, granted) in [("welcome", true), ("welcome-permission", false)] {
+                          view: AnyView(settings(.capture))))
+        let welcomeScenes: [(String, Bool, WelcomeStep, Bool, CGSize)] = [
+            ("welcome", false, .intro, false, WelcomeView.preferredSize),
+            ("welcome-practice", false, .practice, false, WelcomeView.preferredSize),
+            ("welcome-selected", false, .practice, true, WelcomeView.preferredSize),
+            ("welcome-permission", false, .access, false, WelcomeView.preferredSize),
+            ("welcome-ready", true, .access, true, WelcomeView.preferredSize),
+            ("welcome-narrow", false, .intro, false, CGSize(width: 480, height: 620)),
+            ("welcome-recovery", false, .access, true, CGSize(width: 440, height: 520))
+        ]
+        for (name, granted, step, selected, size) in welcomeScenes {
             let permission = ScreenPermission(check: { granted }, request: { granted })
-            list.append(Scene(name: name, size: DS.welcomeSize,
-                              view: AnyView(WelcomeView(settings: store, permission: permission, capture: { _ in }, openSettings: {}, openPrivacy: {}, finish: {}))))
+            if name == "welcome-recovery" { permission.requestAccess() }
+            list.append(Scene(name: name, size: size,
+                              view: AnyView(WelcomeView(settings: store, permission: permission, capture: { _ in }, openSettings: {},
+                                                        openPrivacy: {}, finish: {}, startAt: step, sampleSelected: selected))))
         }
         let capture = CapturedImage(image: image, scale: 2, source: "Fieldnotes")
-        list.append(Scene(name: "thumbnail", size: DS.thumbnailSize,
+        let thumbnailSize = CGSize(width: DS.thumbnailSize.width, height: DS.thumbnailSize.height + DS.xxl)
+        list.append(Scene(name: "thumbnail", size: thumbnailSize,
                           view: AnyView(ThumbnailView(capture: capture, open: {}, copy: {}, save: {}, pin: {}, dismiss: {}))))
-        list.append(Scene(name: "countdown", size: CGSize(width: 220, height: 236), view: AnyView(CountdownView(state: CountdownState(seconds: 3)))))
+        list.append(Scene(name: "thumbnail-disposable", size: thumbnailSize,
+                          view: AnyView(ThumbnailView(capture: capture, open: {}, copy: {}, save: {}, pin: {}, dismiss: {}, keep: { true }))))
+        let disposableSelection = ThumbnailAskSelection()
+        disposableSelection.id = capture.id
+        list.append(Scene(name: "thumbnail-narrow", size: CGSize(width: 200, height: 182),
+                          view: AnyView(ThumbnailView(capture: capture, selection: disposableSelection, captureID: capture.id,
+                                                       open: {}, copy: {}, save: {}, pin: {}, dismiss: {}, keep: { true }))))
+        let recent = RecentCaptures()
+        recent.insert(capture, disposable: false)
+        recent.insert(CapturedImage(image: image, scale: 2, source: "Area"), disposable: true)
+        list.append(Scene(name: "recent-captures", size: RecentCapturesView.size,
+                          view: AnyView(RecentCapturesView(recent: recent, open: { _ in }, copy: { _ in true },
+                                                           keep: { _ in true }, library: {}, canKeep: { true }))))
+        list.append(Scene(name: "countdown", size: CountdownView.size, view: AnyView(CountdownView(state: CountdownState(seconds: 3)))))
         list.append(Scene(name: "scrolling", size: CGSize(width: 300, height: 320), view: AnyView(ScrollPanel(model: ScrollModel(image: image)))))
+        let overlap = ScrollModel(image: image)
+        overlap.autoScroll = true
+        overlap.pauseForOverlap()
+        list.append(Scene(name: "scrolling-recovery", size: CGSize(width: 300, height: 320), view: AnyView(ScrollPanel(model: overlap))))
+        list.append(Scene(name: "code-results", size: DS.illustrationSize, view: AnyView(CodeResultsView(
+            codes: [CodeRegion(payload: "https://example.com", rect: .zero)]))))
+        list.append(Scene(name: "release-notes", size: CGSize(width: 540, height: 480), view: AnyView(ReleaseNotesController.preview())))
         list.append(Scene(name: "pin", size: CGSize(width: 420, height: 270), view: AnyView(PinView(state: PinState(image: image)))))
 
         let activePin = PinState(image: image); activePin.hovering = true
@@ -282,7 +338,7 @@ extension PreviewRenderer {
         list.append(Scene(name: "pin-locked-unlock", size: CGSize(width: 420, height: 270), view: AnyView(PinView(state: peeking))))
         list.append(Scene(name: "pin-narrow", size: CGSize(width: 100, height: 300), view: AnyView(PinView(state: activePin))))
         list.append(Scene(name: "settings-permission", size: DS.settingsSize,
-                          view: AnyView(SettingsView(store: store, hasScreenAccess: false, initialSection: .privacy, openPrivacy: {}))))
+                          view: AnyView(settings(.privacy, access: false))))
 
         let screen = CGSize(width: 1100, height: 707)
         let shot = CapturedImage(image: image, scale: 1400 / 1100, source: "Display")
@@ -296,10 +352,15 @@ extension PreviewRenderer {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(suite, isDirectory: true)
         let history = HistoryStore(folder: folder)
         let model = HistoryModel(store: history)
+        model.capture = {}
+        model.openSettings = {}
+        model.openRecordings = {}
         if let data = try? ImageExport.encode(image) {
             var entries: [HistoryEntry] = []
             for (index, name) in ["Fieldnotes", "Safari", "Xcode", "Figma", "Notes", "Terminal"].enumerated() {
-                var doc = CaptureDocument(original: data, width: image.width, height: image.height, scale: 2, source: name, date: Date().addingTimeInterval(-Double(index) * 5400))
+                let sample = index == 2 ? image.cropping(to: CGRect(x: 30, y: 80, width: image.width / 3, height: image.height - 120)) ?? image : image
+                var doc = CaptureDocument(original: (try? ImageExport.encode(sample)) ?? data, width: sample.width, height: sample.height, scale: 2,
+                                          source: name, date: Date().addingTimeInterval(-Double(index) * 25200))
                 if index % 2 == 0 {
                     doc.backdrop.fill = .gradient; doc.backdrop.padding = 110; doc.backdrop.angle = 45
                     doc.backdrop.stops = DS.gradients[index % DS.gradients.count].hex.map { let c = DS.components($0); return RGBA(red: c.red, green: c.green, blue: c.blue) }
@@ -309,12 +370,61 @@ extension PreviewRenderer {
                     try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                     try? png.write(to: history.thumbnailURL(doc.id))
                 }
-                entries.append(HistoryEntry(id: doc.id, date: doc.date, title: name, width: Int(size.width), height: Int(size.height), text: ""))
+                let metadata: HistoryMetadata? = index == 0
+                    ? HistoryMetadata(title: "Workspace review", tags: ["Design", "Handoff"], notes: "Circle back after the prototype review.",
+                                      collection: "Fieldnotes", reminder: Date().addingTimeInterval(86400),
+                                      summary: "Project status and the next decisions for the team.")
+                    : nil
+                entries.append(HistoryEntry(id: doc.id, date: doc.date, title: name, width: Int(size.width), height: Int(size.height), text: "", metadata: metadata))
             }
             model.entries = entries
         }
         list.append(Scene(name: "library", size: DS.previewSize, view: AnyView(HistoryView(model: model))))
-        list.append(Scene(name: "library-empty", size: DS.previewSize, view: AnyView(HistoryView(model: HistoryModel(store: HistoryStore(folder: folder.appendingPathComponent("empty")))))))
+        list.append(Scene(name: "library-inspector", size: DS.previewSize, view: AnyView(HistoryView(model: model, initialSelection: model.entries.first?.id))))
+        let empty = HistoryModel(store: HistoryStore(folder: folder.appendingPathComponent("empty")))
+        empty.capture = {}
+        empty.openSettings = {}
+        list.append(Scene(name: "library-empty", size: DS.previewSize, view: AnyView(HistoryView(model: empty))))
+        list.append(Scene(name: "webpage-capture", size: URLCaptureWindowController.panelSize,
+                          view: AnyView(URLCapturePanel(state: URLCapturePanelState(resolveBrowser: { "Google Chrome" })))))
+        let webpageStates: [(String, URLCapturePanelState.PreviewScenario, CGSize)] = [
+            ("custom", .custom, CGSize(width: 380, height: 420)),
+            ("progress", .capturing, URLCaptureWindowController.panelSize),
+            ("error", .failed, URLCaptureWindowController.panelSize),
+            ("unavailable", .unavailable, URLCaptureWindowController.panelSize)
+        ]
+        for (name, state, size) in webpageStates {
+            list.append(Scene(name: "webpage-\(name)", size: size,
+                              view: AnyView(URLCapturePanel(state: .preview(state)))))
+        }
+        list.append(Scene(name: "review-links", size: CGSize(width: 460, height: 570), view: AnyView(ReviewLinksController.preview(image: image))))
+        list.append(Scene(name: "recording-setup", size: RecordingSetupView.preferredSize,
+                          view: AnyView(RecordingPreview.setup())))
+        list.append(Scene(name: "recording-setup-preview", size: RecordingSetupView.preferredSize,
+                          view: AnyView(RecordingPreview.setup(example: image))))
+        list.append(Scene(name: "recording-setup-window", size: RecordingSetupView.preferredSize,
+                          view: AnyView(RecordingPreview.setup(mode: .window, example: image))))
+        list.append(Scene(name: "recording-setup-area", size: RecordingSetupView.minimumSize,
+                          view: AnyView(RecordingPreview.setup(mode: .area))))
+        list.append(Scene(name: "recording-permission", size: RecordingSetupView.permissionSize,
+                          view: AnyView(RecordingPreview.setup(allowed: false))))
+        list.append(Scene(name: "recording-controls", size: RecordingControls.preferredSize,
+                          view: AnyView(RecordingPreview.controls())))
+        let recordingSize = CGSize(width: 1040, height: 720)
+        let recordingScenes: [(String, AnyView)] = [
+            ("editor", AnyView(RecordingPreview.editor(image: image))),
+            ("transcript", AnyView(RecordingPreview.editor(image: image, showsTranscript: true))),
+            ("markup", AnyView(RecordingPreview.editor(image: image, showsMarkup: true))),
+            ("camera", AnyView(RecordingPreview.editor(image: image, showsCamera: true))),
+            ("ask", AnyView(RecordingPreview.editor(image: image, showsAsk: true)))
+        ]
+        for (name, view) in recordingScenes {
+            list.append(Scene(name: "recording-\(name)", size: recordingSize, view: view))
+        }
+        list.append(Scene(name: "recording-editor-narrow", size: CGSize(width: 720, height: 500),
+                          view: AnyView(RecordingPreview.editor(image: image, showsMarkup: true))))
+        list.append(Scene(name: "recording-library", size: CGSize(width: 620, height: 470), view: AnyView(RecordingPreview.library(image: image))))
+        list.append(Scene(name: "recording-library-empty", size: CGSize(width: 620, height: 470), view: AnyView(RecordingPreview.library())))
         return list
     }
 }
