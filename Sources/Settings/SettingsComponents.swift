@@ -8,6 +8,9 @@ private struct SettingsAccessibilityPreviewKey: EnvironmentKey { static let defa
 private struct SettingsCompactKey: EnvironmentKey { static let defaultValue = false }
 private struct SettingsEditingPreviewKey: EnvironmentKey { static let defaultValue = false }
 private struct SettingsFirstVisitKey: EnvironmentKey { static let defaultValue = true }
+private struct SettingsSidebarPreviewKey: EnvironmentKey {
+    static let defaultValue: (collapsed: Bool, query: String?) = (false, nil)
+}
 extension EnvironmentValues {
     var settingsEditingPreview: Bool {
         get { self[SettingsEditingPreviewKey.self] }
@@ -25,6 +28,10 @@ extension EnvironmentValues {
         get { self[SettingsAccessibilityPreviewKey.self] }
         set { self[SettingsAccessibilityPreviewKey.self] = newValue }
     }
+    var settingsSidebarPreview: (collapsed: Bool, query: String?) {
+        get { self[SettingsSidebarPreviewKey.self] }
+        set { self[SettingsSidebarPreviewKey.self] = newValue }
+    }
 }
 public extension View {
     /// Setup shares Settings controls, with one accent action for completing the current step.
@@ -37,38 +44,11 @@ public extension View {
 
     /// Exercises accessibility fallbacks without changing the user's macOS preferences.
     func settingsAccessibilityPreview() -> some View { environment(\.settingsAccessibilityPreview, true) }
-}
 
-/// Native materials on screen; opaque, appearance-specific colors only for accessibility
-/// and offscreen snapshots, where there is no WindowServer backdrop to sample.
-struct SettingsSurface: View {
-    enum Role { case sidebar, group }
-    let role: Role
-    @Environment(\.colorScheme) private var scheme
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.settingsAccessibilityPreview) private var accessibilityPreview
-    var body: some View {
-        Group {
-            if reduceTransparency || accessibilityPreview || DS.rendersOffscreen {
-                role == .sidebar ? S.sidebarFallback(scheme) : S.groupFallback(scheme)
-            } else if role == .sidebar {
-                SidebarMaterial()
-            } else {
-                Rectangle().fill(.regularMaterial)
-            }
-        }.allowsHitTesting(false).accessibilityHidden(true)
+    /// Shows the compact rail or search results in an offscreen preview.
+    func settingsSidebarPreview(collapsed: Bool = false, query: String? = nil) -> some View {
+        environment(\.settingsSidebarPreview, (collapsed, query))
     }
-}
-
-private struct SidebarMaterial: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .sidebar
-        view.blendingMode = .behindWindow
-        view.state = .followsWindowActiveState
-        return view
-    }
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
 struct SettingsGroup<Content: View>: View {
@@ -77,37 +57,32 @@ struct SettingsGroup<Content: View>: View {
     var footer: String?
     @ViewBuilder var content: () -> Content
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.colorSchemeContrast) private var contrast
-    @Environment(\.settingsAccessibilityPreview) private var accessibilityPreview
     @Environment(\.settingsFirstVisit) private var firstVisit
     @ViewBuilder var body: some View {
-        if firstVisit && !DS.rendersOffscreen { card.staggeredAppear(index) } else { card }
+        if firstVisit && !DS.rendersOffscreen { group.staggeredAppear(index) } else { group }
     }
-    private var card: some View {
+    private var group: some View {
         VStack(alignment: .leading, spacing: DS.sm) {
             if let title {
-                Text(title.uppercased()).font(S.section).tracking(0.5).foregroundStyle(.secondary)
-                    .padding(.leading, DS.xs).accessibilityAddTraits(.isHeader)
+                Text(title).font(S.navigation).foregroundStyle(.primary)
+                    .accessibilityAddTraits(.isHeader)
+                Rectangle().fill(S.edge(scheme)).frame(height: S.hairline)
+                    .accessibilityHidden(true)
             }
             VStack(alignment: .leading, spacing: 0, content: content)
-                .padding(S.groupInset).frame(maxWidth: .infinity, alignment: .leading)
-                .background(SettingsSurface(role: .group))
-                .clipShape(RoundedRectangle(cornerRadius: S.radius))
-                .shadow(color: S.cardShadow(scheme), radius: DS.xs / 2, y: DS.stroke)
-                .overlay(RoundedRectangle(cornerRadius: S.radius).strokeBorder(contrast == .increased || accessibilityPreview ? S.accent(scheme) : S.edge(scheme), lineWidth: S.hairline))
+                .padding(.vertical, S.groupInset).frame(maxWidth: .infinity, alignment: .leading)
             if let footer {
                 Text(footer).font(S.detail).foregroundStyle(.secondary)
                     .frame(maxWidth: S.helpWidth, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true).padding(.horizontal, DS.xs)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 }
 
-/// All Settings buttons retain native activation and keyboard traversal, with a neutral
-/// visible focus outline independent of the editor accent.
+/// Retains native button activation with one focus outline for keyboard traversal.
 struct SettingsButtonStyle: PrimitiveButtonStyle {
-    enum Kind: Equatable { case standard, plain, choice(Bool), setupPrimary }
+    enum Kind: Equatable { case standard, plain, choice(Bool), setupPrimary, sidebar }
     var kind: Kind = .standard
     func makeBody(configuration: Configuration) -> some View { StyledButton(configuration: configuration, kind: kind) }
     private struct StyledButton: View {
@@ -141,7 +116,15 @@ struct SettingsButtonStyle: PrimitiveButtonStyle {
             case .setupPrimary: DS.accent.opacity(hovering ? 0.9 : 1)
             case .standard: hovering ? S.selection(scheme) : S.fill(scheme)
             case .plain: hovering ? S.fill(scheme) : .clear
+            case .sidebar: hovering ? S.sidebarTile : .clear
             case .choice(let selected): selected ? S.selection(scheme) : (hovering ? S.fill(scheme) : .clear)
+            }
+        }
+        private var outline: Color {
+            if focused { return kind == .sidebar ? S.sidebarFocus : S.accent(scheme) }
+            switch kind {
+            case .standard, .choice(true): return S.controlEdge(scheme)
+            case .plain, .choice(false), .setupPrimary, .sidebar: return .clear
             }
         }
         func makeBody(configuration: Configuration) -> some View {
@@ -152,7 +135,7 @@ struct SettingsButtonStyle: PrimitiveButtonStyle {
                 .contentShape(RoundedRectangle(cornerRadius: S.controlRadius))
                 .background(fill, in: RoundedRectangle(cornerRadius: S.controlRadius))
                 .overlay(RoundedRectangle(cornerRadius: S.controlRadius)
-                    .strokeBorder(focused ? S.accent(scheme) : .clear, lineWidth: S.focusWidth))
+                    .strokeBorder(outline, lineWidth: focused ? S.focusWidth : S.hairline))
                 .animation(DS.Motion.hover(reduceMotion), value: hovering)
                 .opacity(enabled ? (configuration.isPressed ? 0.65 : 1) : 0.4)
         }
@@ -173,11 +156,13 @@ struct SettingsSegments<Value: Hashable>: View {
         HStack(spacing: DS.xs / 2) {
             ForEach(options, id: \.0) { value, title in
                 Button { select(value) } label: {
-                    Text(title).font(S.detail).lineLimit(1).frame(maxWidth: .infinity)
+                    Text(title).font(selection == value ? S.detail.weight(.semibold) : S.detail)
+                        .lineLimit(1).frame(maxWidth: .infinity)
                         .frame(height: S.controlHeight - DS.xs)
                         .background {
                             if selection == value {
                                 let shape = RoundedRectangle(cornerRadius: S.controlRadius).fill(S.raised(scheme))
+                                    .overlay(RoundedRectangle(cornerRadius: S.controlRadius).strokeBorder(S.controlEdge(scheme), lineWidth: S.hairline))
                                 if reduceMotion { shape.transition(.opacity) }
                                 else { shape.matchedGeometryEffect(id: "selected", in: indicator) }
                             }
@@ -190,6 +175,8 @@ struct SettingsSegments<Value: Hashable>: View {
         .animation(DS.Motion.snappy(reduceMotion), value: selection)
         .padding(.horizontal, DS.xs / 2)
         .background(S.fill(scheme), in: RoundedRectangle(cornerRadius: S.controlRadius + DS.xs / 2))
+        .overlay(RoundedRectangle(cornerRadius: S.controlRadius + DS.xs / 2)
+            .strokeBorder(S.edge(scheme), lineWidth: S.hairline).allowsHitTesting(false))
     }
 }
 
@@ -224,16 +211,23 @@ struct PreferenceSlider: View {
     let range: ClosedRange<Double>
     var unit = ""
     var percent = false
+    private let defaultLabel: String?
+    private let onPreview: ((Double?) -> Void)?
     @LocalState private var draft: Double?
     @LocalState private var editing = false
     @FocusState private var focused: Bool
     @Environment(\.colorScheme) private var scheme
-    init(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, unit: String = "", percent: Bool = false) {
+    init(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, unit: String = "", percent: Bool = false,
+         defaultLabel: String? = nil,
+         onPreview: ((Double?) -> Void)? = nil) {
         self.title = title; _value = value; self.range = range; self.unit = unit; self.percent = percent
+        self.defaultLabel = defaultLabel
+        self.onPreview = onPreview
     }
     @Environment(\.settingsCompact) private var compact
     private func normalized(_ number: Double) -> Double { percent ? number : number.rounded() }
     private var display: String {
+        if draft == nil, let defaultLabel { return defaultLabel }
         let number = draft ?? value
         return percent ? "\(Int((number * 100).rounded()))%" : "\(Int(number.rounded())) \(unit)"
     }
@@ -243,15 +237,19 @@ struct PreferenceSlider: View {
             Spacer(minLength: DS.sm)
             HStack(spacing: DS.sm) {
                 Slider(value: Binding(get: { draft ?? value }, set: { next in
-                    if editing { draft = next } else { value = normalized(next) }
+                    if editing {
+                        draft = next
+                        onPreview?(next)
+                    } else { value = normalized(next) }
                 }), in: range, onEditingChanged: { active in
                     editing = active
                     if !active, let draft { value = normalized(draft); self.draft = nil }
+                    if !active { onPreview?(nil) }
                 }) { Text(title) }
                     .labelsHidden().tint(S.accent(scheme))
                     .focused($focused).focusEffectDisabled()
                     .overlay(RoundedRectangle(cornerRadius: S.controlRadius).strokeBorder(focused ? S.accent(scheme) : .clear, lineWidth: S.focusWidth))
-                Text(display).font(S.mono).foregroundStyle(.secondary).frame(width: 46, alignment: .trailing)
+                Text(display).font(S.mono).foregroundStyle(.secondary).frame(width: S.sliderValueWidth, alignment: .trailing)
                     .accessibilityHidden(true)
             }.frame(width: S.controlWidth)
         }.frame(minHeight: compact ? S.compactHeight : S.rowHeight).modifier(SettingsRowHover())
@@ -267,7 +265,7 @@ struct SettingsField: ViewModifier {
             .background(S.fill(scheme), in: RoundedRectangle(cornerRadius: S.controlRadius))
             .focused($focused).focusEffectDisabled()
             .overlay(RoundedRectangle(cornerRadius: S.controlRadius)
-                .strokeBorder(focused ? S.accent(scheme) : S.edge(scheme), lineWidth: focused ? S.focusWidth : S.hairline))
+                .strokeBorder(focused ? S.accent(scheme) : S.controlEdge(scheme), lineWidth: focused ? S.focusWidth : S.hairline))
     }
 }
 
@@ -278,18 +276,22 @@ struct SettingsMenu<Value: Hashable>: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.isEnabled) private var enabled
     var body: some View {
-        HStack(spacing: DS.sm) {
-            Text(options.first { $0.0 == selection }?.1 ?? "Choose…").font(S.detail).lineLimit(1)
-            Spacer(minLength: 0)
-            Icon("caret-up-down", size: DS.md)
+        ZStack {
+            HStack(spacing: DS.sm) {
+                Text(options.first { $0.0 == selection }?.1 ?? "Choose…").font(S.detail).lineLimit(1)
+                Spacer(minLength: 0)
+                Icon("caret-up-down", size: DS.md)
+            }
+            .padding(.horizontal, DS.sm)
+            .frame(height: S.controlHeight)
+            .background(S.fill(scheme), in: RoundedRectangle(cornerRadius: S.controlRadius))
+            .overlay(RoundedRectangle(cornerRadius: S.controlRadius).strokeBorder(S.controlEdge(scheme), lineWidth: S.hairline))
+            .opacity(enabled ? 1 : DS.mutedOpacity)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            NativeSettingsMenu(label: label, options: options, selection: $selection)
         }
-        .padding(.horizontal, DS.sm)
         .frame(width: S.controlWidth, height: S.controlHeight)
-        .background(S.fill(scheme), in: RoundedRectangle(cornerRadius: S.controlRadius))
-        .overlay(RoundedRectangle(cornerRadius: S.controlRadius).strokeBorder(S.edge(scheme), lineWidth: S.hairline))
-        .opacity(enabled ? 1 : DS.mutedOpacity)
-        .accessibilityHidden(true)
-        .overlay { NativeSettingsMenu(label: label, options: options, selection: $selection) }
     }
 }
 
@@ -367,18 +369,27 @@ struct SettingsRow<Control: View>: View {
         self.control = control
     }
 
-    var body: some View {
-        HStack(spacing: DS.md) {
-            VStack(alignment: .leading, spacing: DS.xs) {
-                Text(title).font(S.label).fixedSize(horizontal: false, vertical: true)
-                if let detail {
-                    Text(detail).font(S.detail).foregroundStyle(.secondary)
-                        .lineLimit(detailLines).truncationMode(.middle).fixedSize(horizontal: false, vertical: true).help(detail)
-                        .frame(maxWidth: S.helpWidth, alignment: .leading)
-                }
+    private var label: some View {
+        VStack(alignment: .leading, spacing: DS.xs) {
+            Text(title).font(S.label).fixedSize(horizontal: false, vertical: true)
+            if let detail {
+                Text(detail).font(S.detail).foregroundStyle(.secondary)
+                    .lineLimit(detailLines).truncationMode(.middle).fixedSize(horizontal: false, vertical: true).help(detail)
+                    .frame(maxWidth: S.helpWidth, alignment: .leading)
             }
-            Spacer(minLength: DS.sm)
-            control().fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: DS.md) {
+                label.frame(minWidth: S.rowLabelWidth, idealWidth: S.rowLabelWidth, maxWidth: .infinity, alignment: .leading)
+                control().fixedSize(horizontal: true, vertical: false)
+            }
+            VStack(alignment: .leading, spacing: DS.sm) {
+                label
+                control()
+            }.frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, compact ? DS.xs / 2 : DS.xs)
         .frame(minHeight: compact ? S.compactHeight : S.rowHeight)

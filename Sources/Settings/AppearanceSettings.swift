@@ -53,6 +53,7 @@ struct AppearanceSettings: View {
                         store.preferences.customization.chrome = $0
                     }.frame(width: S.controlWidth)
                 }
+                chromePreview
             }
             SettingsGroup(title: "Toolbars", index: 2) {
                 ToolbarSettings(title: "Editor tools", list: .editor, visible: $store.preferences.customization.editorTools)
@@ -63,6 +64,34 @@ struct AppearanceSettings: View {
                 ToolbarSettings(title: "Thumbnail buttons", list: .thumbnail, visible: $store.preferences.customization.thumbnailActions)
             }
         }
+    }
+
+    private var chromePreview: some View {
+        let customization = store.preferences.customization
+        let compact = customization.density == .compact
+        let tools = HStack(spacing: compact ? DS.xs : DS.md) {
+            Icon("cursor", size: DS.iconSize)
+            Icon("crop", size: DS.iconSize)
+            Icon("pen-nib", size: DS.iconSize)
+            Icon("text-t", size: DS.iconSize)
+        }
+        .padding(compact ? DS.xs : DS.sm)
+        return ZStack {
+            RoundedRectangle(cornerRadius: S.controlRadius).fill(S.fill(scheme))
+            RoundedRectangle(cornerRadius: S.controlRadius).fill(S.selection(scheme))
+                .frame(width: S.controlWidth, height: S.controlHeight)
+                .offset(x: DS.md, y: DS.sm)
+            if customization.chrome == .glass {
+                tools.modifier(GlassSurface(radius: S.controlRadius))
+            } else {
+                tools.background(S.raised(scheme), in: RoundedRectangle(cornerRadius: S.controlRadius))
+                    .overlay(RoundedRectangle(cornerRadius: S.controlRadius).strokeBorder(S.controlEdge(scheme), lineWidth: S.hairline))
+            }
+        }
+        .frame(height: S.previewHeight)
+        .animation(DS.Motion.panel(reduceMotion), value: customization.chrome)
+        .animation(DS.Motion.snappy(reduceMotion), value: customization.density)
+        .accessibilityHidden(true)
     }
 }
 
@@ -101,7 +130,8 @@ private struct ToolbarSettings: View {
                     }
                 }.id(reduceMotion ? visible : nil).transition(.opacity)
                 HStack {
-                    Text("Drag visible items to reorder.").font(S.detail).foregroundStyle(.secondary)
+                    Text("Drag the handle or use the arrows to reorder.").font(S.detail).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     Spacer()
                     Button("Reset") { visible = list.defaults; labels?.wrappedValue = true }
                         .buttonStyle(SettingsButtonStyle())
@@ -150,13 +180,12 @@ private struct ToolbarSettings: View {
             if pinned {
                 Text("Always shown").font(S.detail).foregroundStyle(.secondary)
             } else if selected {
-                Icon("dots-six-vertical", size: DS.lg).foregroundStyle(.secondary)
+                reorderControls(id, name: name)
             }
         }
         .contentShape(Rectangle())
         if selected && !pinned {
-            row.draggable("\(title)/\(id)")
-                .dropDestination(for: String.self) { items, _ in
+            row.dropDestination(for: String.self) { items, _ in
                     guard let payload = items.first, payload.hasPrefix(title + "/") else { return false }
                     let source = String(payload.dropFirst(title.count + 1))
                     guard visible.contains(source) else { return false }
@@ -169,11 +198,39 @@ private struct ToolbarSettings: View {
         } else { row }
     }
 
+    private func reorderControls(_ id: String, name: String) -> some View {
+        let movable = visible.filter { !list.isPinned($0) }
+        let index = movable.firstIndex(of: id) ?? 0
+        return HStack(spacing: DS.xs) {
+            Icon("dots-six-vertical", size: DS.lg).foregroundStyle(.secondary)
+                .frame(width: DS.xl, height: S.controlHeight)
+                .contentShape(Rectangle())
+                .help("Drag to reorder \(name)")
+                .draggable("\(title)/\(id)")
+                .accessibilityHidden(true)
+            moveButton("caret-up", label: "Move \(name) up", to: index - 1, id: id, movable: movable)
+            moveButton("caret-down", label: "Move \(name) down", to: index + 1, id: id, movable: movable)
+        }
+    }
+    private func moveButton(_ icon: String, label: String, to index: Int, id: String, movable: [String]) -> some View {
+        Button {
+            guard movable.indices.contains(index) else { return }
+            visible = list.moving(id, to: movable[index], in: visible)
+        } label: {
+            Icon(icon, size: DS.md).frame(width: DS.lg)
+        }
+        .buttonStyle(SettingsButtonStyle(kind: .plain))
+        .disabled(!movable.indices.contains(index))
+        .help(label)
+        .accessibilityLabel(label)
+    }
+
     private static func name(_ id: String) -> String {
         switch id {
         case "picker": "Color picker"
         case "drawing": "Draw"
         case "erase": "Erase with color"
+        case "delete": "Dismiss"
         default: id.capitalized
         }
     }
@@ -198,7 +255,7 @@ private struct ToolbarSettings: View {
         case "edit": "pencil-simple"
         case "pin": "push-pin"
         case "ask": "chat-circle-dots"
-        case "delete": "trash"
+        case "delete": "x"
         default: id
         }
     }

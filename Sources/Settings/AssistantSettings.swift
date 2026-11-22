@@ -8,6 +8,7 @@ private typealias S = DS.Preferences
 struct AssistantSettings: View {
     @Bindable var store: SettingsStore
     let factory: (AssistantProvider) -> any AssistantService
+    let openLibrarySettings: () -> Void
     @LocalState private var availability: [AssistantProvider: AssistantAvailability] = [:]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var scheme
@@ -19,12 +20,6 @@ struct AssistantSettings: View {
             SettingsGroup(title: "Provider") {
                 ForEach(AssistantProvider.allCases) { provider in
                     providerRow(provider)
-                        .task(id: selected) {
-                            // The account view refreshes the selected tool, including after login/logout.
-                            guard provider != selected else { return }
-                            let state = await factory(provider).availability()
-                            if !Task.isCancelled { availability[provider] = state }
-                        }
                     SettingsDivider()
                 }
                 providerRow(nil)
@@ -49,8 +44,14 @@ struct AssistantSettings: View {
                 }
             }.disabled(selected == nil)
             SettingsGroup(title: "Conversations", index: 3) {
-                SettingsRow("Keep conversations with captures", "Save the thread with its capture in History.") {
-                    SettingsToggle(label: "Keep conversations with captures", isOn: $store.preferences.assistant.keepConversations)
+                if store.preferences.historyEnabled {
+                    SettingsRow("Keep conversations with captures", "Save the thread with its capture in the Library.") {
+                        SettingsToggle(label: "Keep conversations with captures", isOn: $store.preferences.assistant.keepConversations)
+                    }
+                } else {
+                    SettingsRow("Keep conversations with captures", "Turn on capture history in Library settings to save threads.") {
+                        Button("Library settings", action: openLibrarySettings).buttonStyle(SettingsButtonStyle())
+                    }
                 }
                 SettingsDivider()
                 SuggestionSettings(suggestions: $store.preferences.assistant.suggestions)
@@ -61,71 +62,36 @@ struct AssistantSettings: View {
     private func providerRow(_ provider: AssistantProvider?) -> some View {
         let id = provider?.rawValue ?? "off"
         let active = store.preferences.assistant.provider == id
-        let state = provider.flatMap { availability[$0] }
-        return VStack(alignment: .leading, spacing: DS.xs) {
-            Button {
-                guard !active else { return }
-                withAnimation(DS.Motion.snappy(reduceMotion)) {
-                    store.preferences.assistant.model = nil
-                    store.preferences.assistant.provider = id
-                }
-            } label: {
-                HStack(spacing: DS.sm) {
-                    Circle().strokeBorder(S.accent(scheme), lineWidth: S.focusWidth)
-                        .overlay {
-                            if active {
-                                Circle().fill(S.accent(scheme)).padding(DS.xs)
-                                    .transition(reduceMotion ? .opacity : .scale.combined(with: .opacity))
-                            }
-                        }.frame(width: DS.lg, height: DS.lg)
-                    SettingsIconTile(icon: provider == .chatgpt ? "chat-circle-dots" : provider == .claude ? "sparkle" : "power", selected: active)
-                    VStack(alignment: .leading, spacing: DS.xs) {
-                        Text(provider?.title ?? "Off").font(S.label)
-                        Text(provider.map { "Uses your \($0.title) plan through \($0.toolName) on this Mac" } ?? "Hide Ask everywhere")
-                            .font(S.detail).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: DS.sm)
-                    if let provider {
-                        Text(version(for: provider, state: state)).font(S.mono).foregroundStyle(.secondary)
-                            .multilineTextAlignment(.trailing)
-                    }
-                }.frame(minHeight: compact ? S.compactHeight : S.rowHeight)
+        return Button {
+            guard !active else { return }
+            withAnimation(DS.Motion.snappy(reduceMotion)) {
+                var preferences = store.preferences
+                preferences.assistant.model = nil
+                preferences.assistant.provider = id
+                store.preferences = preferences
             }
-            .buttonStyle(SettingsButtonStyle(kind: .plain))
-            .accessibilityAddTraits(active ? .isSelected : [])
-            if let provider, state == .notInstalled {
-                let hint = provider == .chatgpt ? "npm i -g @openai/codex" : "https://claude.com/claude-code"
-                HStack(spacing: DS.sm) {
-                    if provider == .claude, let url = URL(string: hint) {
-                        Button { _ = NSWorkspace.shared.open(url) } label: {
-                            HStack(spacing: DS.xs) {
-                                Text("Get Claude Code").font(S.detail)
-                                Icon("arrow-square-out", size: DS.md)
-                            }
+        } label: {
+            HStack(spacing: DS.sm) {
+                Circle().strokeBorder(active ? S.accent(scheme) : S.controlEdge(scheme), lineWidth: S.focusWidth)
+                    .overlay {
+                        if active {
+                            Circle().fill(S.accent(scheme)).padding(DS.xs)
+                                .transition(DS.Motion.pop(reduceMotion: reduceMotion))
                         }
-                        .buttonStyle(SettingsButtonStyle(kind: .plain))
-                        .accessibilityAddTraits(.isLink).help(hint)
-                    } else {
-                        Text(hint).font(S.mono).textSelection(.enabled)
-                    }
-                    Spacer()
-                    Button(provider == .chatgpt ? "Copy command" : "Copy link") {
-                        AssistantInstallHint.copy(hint, to: .general)
-                    }.buttonStyle(SettingsButtonStyle())
-                }.padding(DS.sm)
-                    .background(S.fill(scheme), in: RoundedRectangle(cornerRadius: S.controlRadius))
-            }
+                    }.frame(width: DS.lg, height: DS.lg)
+                    .accessibilityHidden(true)
+                SettingsIconTile(icon: provider == .chatgpt ? "chat-circle-dots" : provider == .claude ? "sparkle" : "power", selected: active)
+                VStack(alignment: .leading, spacing: DS.xs) {
+                    Text(provider?.title ?? "Off").font(active ? S.navigation : S.label)
+                    Text(provider.map { "Use your \($0.title) plan through \($0.toolName)." } ?? "Hide Ask in capture tools and the editor.")
+                        .font(S.detail).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }.frame(minHeight: compact ? S.compactHeight : S.rowHeight)
         }
-    }
-
-    private func version(for provider: AssistantProvider, state: AssistantAvailability?) -> String {
-        switch state {
-        case .notInstalled: "Not installed"
-        case .ready(let account): "\(provider.toolName) \(account.toolVersion)"
-        case .signedOut(let version, _), .unsupportedVersion(let version, _): "\(provider.toolName) \(version)"
-        case nil: "Checking…"
-        }
+        .buttonStyle(SettingsButtonStyle(kind: .plain))
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 }
 
@@ -148,13 +114,16 @@ private struct AssistantAccountSettings: View {
     @LocalState private var busy = false
     @LocalState private var waiting = false
     @LocalState private var message: String?
+    @LocalState private var copiedInstallCommand = false
+    @LocalState private var showToolVersion = false
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        SettingsGroup(title: "Account", index: 1) {
+        SettingsGroup(title: "Connection", index: 1) {
             switch availability {
             case .ready(let account):
-                SettingsRow(account.email.map { "Signed in as \($0)" } ?? "Signed in", [service.provider.title, account.plan].compactMap { $0 }.joined(separator: " ")) {
+                SettingsRow("\(service.provider.title) is ready", [account.email, account.plan].compactMap { $0 }.joined(separator: " · ")) {
                     Button("Sign out") { begin(.signOut) }.buttonStyle(SettingsButtonStyle()).disabled(busy)
                 }
                 SettingsDivider()
@@ -182,17 +151,35 @@ private struct AssistantAccountSettings: View {
                         Button("Cancel") { begin(.refresh) }.buttonStyle(SettingsButtonStyle())
                     }
                 } else {
-                    SettingsRow("Signed out", "Continue with your \(service.provider.title) account.") {
+                    SettingsRow("Sign in to \(service.provider.title)", "Continue with the subscription you already use.") {
                         Button("Sign in with \(service.provider.title)") { begin(.signIn) }
                             .buttonStyle(SettingsButtonStyle()).disabled(busy)
                     }
                 }
             case .notInstalled:
-                checkAgain("Install \(service.provider.toolName) to sign in.")
+                install
             case .unsupportedVersion(_, let minimum):
-                checkAgain("Update \(service.provider.toolName) to \(minimum) or later.")
+                SettingsRow("Update \(service.provider.toolName)", "Install \(minimum) or later, then check again.") { refreshButton }
             case nil:
                 Text("Checking \(service.provider.toolName)…").font(S.detail).foregroundStyle(.secondary)
+            }
+            if let version = toolVersion {
+                SettingsDivider()
+                Button {
+                    withAnimation(DS.Motion.panel(reduceMotion)) { showToolVersion.toggle() }
+                } label: {
+                    HStack(spacing: DS.xs) {
+                        Icon(showToolVersion ? "caret-down" : "caret-right", size: DS.md)
+                        Text("Tool details")
+                    }.foregroundStyle(.secondary)
+                }
+                .buttonStyle(SettingsButtonStyle(kind: .plain))
+                .accessibilityValue(showToolVersion ? "Expanded" : "Collapsed")
+                if showToolVersion {
+                    Text("\(service.provider.toolName) \(version)").font(S.mono).foregroundStyle(.secondary)
+                        .padding(.horizontal, DS.md).padding(.bottom, DS.sm)
+                        .transition(DS.Motion.rise(reduceMotion: reduceMotion))
+                }
             }
             if let message {
                 SettingsDivider()
@@ -206,9 +193,38 @@ private struct AssistantAccountSettings: View {
         return (models + [model].compactMap { $0 }).filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
-    private func checkAgain(_ detail: String) -> some View {
-        SettingsRow("Setup required", detail) {
-            Button("Check again") { begin(.refresh) }.buttonStyle(SettingsButtonStyle()).disabled(busy)
+    private var toolVersion: String? {
+        switch availability {
+        case .ready(let account): account.toolVersion
+        case .signedOut(let version, _), .unsupportedVersion(let version, _): version
+        case .notInstalled, nil: nil
+        }
+    }
+
+    private var refreshButton: some View {
+        Button("Check again") { begin(.refresh) }.buttonStyle(SettingsButtonStyle()).disabled(busy)
+    }
+    private var install: some View {
+        let command = "npm i -g @openai/codex"
+        return VStack(alignment: .leading, spacing: DS.xs) {
+            SettingsRow("Install \(service.provider.toolName)", "Set up this tool on your Mac, then check again.") { refreshButton }
+            if service.provider == .chatgpt {
+                SettingsRow(command) {
+                    Button(copiedInstallCommand ? "Copied" : "Copy install command") {
+                        AssistantInstallHint.copy(command, to: .general)
+                        copiedInstallCommand = true
+                    }.buttonStyle(SettingsButtonStyle())
+                }
+            } else if let url = URL(string: "https://claude.com/claude-code") {
+                Button {
+                    NSWorkspace.shared.open(url)
+                } label: {
+                    HStack(spacing: DS.xs) {
+                        Text("Get Claude Code")
+                        Icon("arrow-square-out", size: DS.md)
+                    }
+                }.buttonStyle(SettingsButtonStyle()).accessibilityAddTraits(.isLink)
+            }
         }
     }
 

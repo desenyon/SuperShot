@@ -17,7 +17,7 @@ public enum AfterCapture: String, Codable, CaseIterable, Sendable {
 }
 
 public enum CaptureActionMode: String, CaseIterable, Sendable {
-    case screen, window, area, scrolling
+    case screen, window, area, scrolling, webpage
 }
 
 public enum ThumbnailCorner: String, Codable, CaseIterable, Sendable {
@@ -122,7 +122,7 @@ public struct CustomizationPreferences: Codable, Equatable, Sendable {
     public static let allOverlayActions = ["capture", "copy", "save", "edit", "pin", "text", "ask"]
     public static let defaultOverlayActions = ["capture", "copy", "save", "edit", "pin", "text", "ask"]
     public static let allThumbnailActions = ["copy", "save", "pin", "ask", "edit", "delete"]
-    public static let defaultThumbnailActions = ["copy", "save", "pin", "ask", "delete"]
+    public static let defaultThumbnailActions = ["edit", "copy", "save", "pin", "ask", "delete"]
     public init() {}
     public init(from decoder: Decoder) throws {
         self.init()
@@ -132,7 +132,9 @@ public struct CustomizationPreferences: Codable, Equatable, Sendable {
         chrome = try v.decodeIfPresent(DS.Chrome.self, forKey: .chrome) ?? .glass
         editorTools = CustomizationList.editor.normalized(try v.decodeIfPresent([String].self, forKey: .editorTools) ?? Self.defaultEditorTools)
         overlayActions = CustomizationList.overlay.normalized(try v.decodeIfPresent([String].self, forKey: .overlayActions) ?? Self.defaultOverlayActions)
-        thumbnailActions = CustomizationList.thumbnail.normalized(try v.decodeIfPresent([String].self, forKey: .thumbnailActions) ?? Self.defaultThumbnailActions)
+        let savedThumbnailActions = try v.decodeIfPresent([String].self, forKey: .thumbnailActions)
+        thumbnailActions = CustomizationList.thumbnail.normalized(
+            savedThumbnailActions == ["copy", "save", "pin", "ask", "delete"] ? Self.defaultThumbnailActions : savedThumbnailActions ?? Self.defaultThumbnailActions)
         overlayLabels = try v.decodeIfPresent(Bool.self, forKey: .overlayLabels) ?? true
     }
 }
@@ -150,6 +152,8 @@ public struct Preferences: Codable, Equatable, Sendable {
     public var areaAction: AfterCapture = .thumbnail
     public var includeCursor = false
     public var historyEnabled = true
+    public var organizeCapturesLocally = false
+    public var useAppleIntelligenceForOrganization = true
     public var retentionDays = 30
     public var fileFormat: String = "public.png"
     public var clipboardFormat: String = "public.png"
@@ -160,7 +164,11 @@ public struct Preferences: Codable, Equatable, Sendable {
     public var filenameCounter: Int = 1
     public var subfolders: String = "none"
     public var saveSidecar: Bool = false
+    public var keepExportUpdated = false
     public var captureSound: Bool = false
+    public var captureSoundName: String?
+    public var selectionTint: RGBA?
+    public var selectionTintOpacity: Double?
     public var hideDesktopIcons: Bool = false
     public var keepWindowShadow: Bool = false
     public var automaticBackdrop: Bool = false
@@ -174,6 +182,8 @@ public struct Preferences: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case floating, assistant, customization
         case autoCopyScreenshots, captureOnRelease
+        case keepExportUpdated, organizeCapturesLocally, useAppleIntelligenceForOrganization
+        case captureSoundName, selectionTint, selectionTintOpacity
         case appearance, showDockIcon, onboardingCompleted, afterCapture, areaAction, includeCursor, saveFolder, shortcuts, historyEnabled, retentionDays, fileFormat, clipboardFormat, quality, oneX, convertToSRGB, filenameTemplate, filenameCounter, subfolders, saveSidecar, captureSound, hideDesktopIcons, keepWindowShadow, automaticBackdrop, defaultBackdrop, backdropPresets, modeActions, toolShortcuts
     }
     public init(from decoder: Decoder) throws {
@@ -200,6 +210,14 @@ public struct Preferences: Codable, Equatable, Sendable {
         subfolders = try values.decodeIfPresent(String.self, forKey: .subfolders) ?? "none"
         saveSidecar = try values.decodeIfPresent(Bool.self, forKey: .saveSidecar) ?? false
         captureSound = try values.decodeIfPresent(Bool.self, forKey: .captureSound) ?? false
+        captureSoundName = try values.decodeIfPresent(String.self, forKey: .captureSoundName)
+        if let captureSoundName, !Self.captureSoundNames.contains(captureSoundName) { self.captureSoundName = nil }
+        selectionTint = try values.decodeIfPresent(RGBA.self, forKey: .selectionTint)
+        selectionTintOpacity = try values.decodeIfPresent(Double.self, forKey: .selectionTintOpacity)
+        if let selectionTintOpacity, !(0...0.40).contains(selectionTintOpacity) { self.selectionTintOpacity = nil }
+        keepExportUpdated = try values.decodeIfPresent(Bool.self, forKey: .keepExportUpdated) ?? false
+        organizeCapturesLocally = try values.decodeIfPresent(Bool.self, forKey: .organizeCapturesLocally) ?? false
+        useAppleIntelligenceForOrganization = try values.decodeIfPresent(Bool.self, forKey: .useAppleIntelligenceForOrganization) ?? true
         hideDesktopIcons = try values.decodeIfPresent(Bool.self, forKey: .hideDesktopIcons) ?? false
         keepWindowShadow = try values.decodeIfPresent(Bool.self, forKey: .keepWindowShadow) ?? false
         automaticBackdrop = try values.decodeIfPresent(Bool.self, forKey: .automaticBackdrop) ?? false
@@ -220,6 +238,8 @@ public struct Preferences: Codable, Equatable, Sendable {
             _ = try ProjectFile.decode(ProjectFile.encode(probe))
         }
     }
+
+    public static let captureSoundNames = ["Tink", "Pop", "Glass", "Hero"]
 
     /// Auto-copy is additive, including when a mode or an overlay button overrides
     /// the other actions. OCR and barcode workflows never enter this image path.
