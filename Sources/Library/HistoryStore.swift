@@ -14,9 +14,25 @@ public struct HistoryEntry: Codable, Identifiable, Sendable {
     public var text: String
     /// Plain text of the saved Ask conversation, for search. Absent in older indexes.
     public var conversation: String?
-    public init(id: UUID, date: Date, title: String, width: Int, height: Int, text: String, conversation: String? = nil) {
+    public var metadata: HistoryMetadata?
+    public var suggestions: HistorySuggestions?
+    public var updatedAt: Date?
+
+    public var displayTitle: String {
+        [metadata?.title, suggestions?.title, title].compactMap { $0 }.first { !$0.isEmpty } ?? "Screenshot"
+    }
+    public var displayTags: [String] { metadata?.tags ?? suggestions?.tags ?? [] }
+    public var displaySummary: String? {
+        [metadata?.summary, suggestions?.summary].compactMap { $0 }.first { !$0.isEmpty }
+    }
+
+    public init(id: UUID, date: Date, title: String, width: Int, height: Int, text: String, conversation: String? = nil,
+                metadata: HistoryMetadata? = nil, suggestions: HistorySuggestions? = nil, updatedAt: Date? = nil) {
         self.id = id; self.date = date; self.title = title; self.width = width; self.height = height; self.text = text
         self.conversation = conversation
+        self.metadata = metadata
+        self.suggestions = suggestions
+        self.updatedAt = updatedAt
     }
 }
 
@@ -28,9 +44,12 @@ public struct StoredMessage: Codable, Equatable, Sendable {
     public init(role: String, text: String, attachments: [String] = []) { self.role = role; self.text = text; self.attachments = attachments }
 }
 public actor HistoryStore {
-    public let folder: URL
+    public nonisolated let folder: URL
     private var entries: [HistoryEntry] = []
     private var loaded=false
+    private var latestRevisions: [UUID: UInt64] = [:]
+    // Open editors may still have a pending autosave when an item is deleted or pruned.
+    private var removedInSession: Set<UUID> = []
     public init(folder: URL? = nil) {
         self.folder=folder ?? FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("SuperShot/History",isDirectory:true)
     }
@@ -53,38 +72,94 @@ public actor HistoryStore {
         }
         loaded=true
     }
-    private func persistIndex() throws {try JSONEncoder().encode(entries).write(to:folder.appendingPathComponent("index.json"),options:.atomic)}
+    private func persistIndex() throws { try writeIndex(entries) }
+    private func writeIndex(_ updated: [HistoryEntry]) throws {
+        try JSONEncoder().encode(updated).write(to: folder.appendingPathComponent("index.json"), options: .atomic)
+    }
     public func all(query: String = "") throws -> [HistoryEntry] {
         try load()
         let needle = searchText(query)
-        return entries.filter {needle.isEmpty || searchText("\($0.title) \($0.text) \($0.conversation ?? "")").contains(needle)}.sorted{$0.date > $1.date}
+        return entries.filter { entry in
+            guard !needle.isEmpty else { return true }
+            let originalSearch = "\(entry.title) \(entry.text) \(entry.conversation ?? "")"
+            let fields = [originalSearch, entry.displayTitle, entry.metadata?.collection ?? "", entry.metadata?.notes ?? "",
+                          entry.displaySummary ?? ""] + entry.displayTags
+            return fields.contains { searchText($0).contains(needle) }
+        }.sorted { left, right in
+            left.date == right.date ? left.id.uuidString < right.id.uuidString : left.date > right.date
+        }
+    }
+    public func collectionNames() throws -> [String] {
+        try load()
+        let names = entries.compactMap { $0.metadata?.collection }.filter { !$0.isEmpty }
+        var seen: Set<String> = []
+        return names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }.filter {
+            seen.insert($0.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)).inserted
+        }
     }
     private func searchText(_ text:String)->String {
         // OCR may split a word or a phrase across regions. Whitespace should
         // not prevent a user from finding text that is visibly in the image.
         text.folding(options:[.caseInsensitive,.diacriticInsensitive],locale:.current).filter{!$0.isWhitespace}
     }
-    public func save(_ document: CaptureDocument, text: String = "", retentionDays: Int = 30, onlyIfMissing: Bool = false) throws {
+    public func save(_ document: CaptureDocument, text: String = "", retentionDays: Int = 30,
+                     onlyIfMissing: Bool = false, revision: UInt64? = nil) throws {
         try load()
+        guard !removedInSession.contains(document.id) else { return }
         if onlyIfMissing && entries.contains(where:{$0.id == document.id}) {return}
-        try ProjectFile.encode(document).write(to:projectURL(document.id),options:.atomic)
+        if let revision, revision <= (latestRevisions[document.id] ?? 0) { return }
+        let data = try ProjectFile.encode(document)
         let size=DocumentRenderer.layout(document).size
         let preview=try DocumentRenderer.render(document,scale:min(1,480/max(size.width,size.height)))
-        try ImageExport.encode(preview).write(to:thumbnailURL(document.id),options:.atomic)
+        let thumbnail = try ImageExport.encode(preview)
+        try data.write(to: projectURL(document.id), options: .atomic)
+        try thumbnail.write(to: thumbnailURL(document.id), options: .atomic)
         let old=entries.first{$0.id == document.id}
-        entries.removeAll{$0.id == document.id}
-        entries.append(HistoryEntry(id:document.id,date:document.date,title:document.source,width:Int(size.width),height:Int(size.height),
-                                    text:text.isEmpty ? old?.text ?? "":text,conversation:old?.conversation))
-        try persistIndex()
+        var updated = entries.filter { $0.id != document.id }
+        updated.append(HistoryEntry(id: document.id, date: document.date, title: document.source,
+                                    width: Int(size.width), height: Int(size.height),
+                                    text: text.isEmpty ? old?.text ?? "" : text, conversation: old?.conversation,
+                                    metadata: old?.metadata, suggestions: old?.suggestions, updatedAt: .now))
+        try writeIndex(updated)
+        entries = updated
+        if let revision { latestRevisions[document.id] = revision }
         try prune(days:retentionDays)
     }
+    @discardableResult public func updateMetadata(_ metadata: HistoryMetadata, id: UUID) throws -> HistoryEntry? {
+        try updateEntry(id) {
+            $0.metadata = HistoryMetadata(title: metadata.title, tags: metadata.tags, notes: metadata.notes,
+                                          collection: metadata.collection, reminder: metadata.reminder,
+                                          summary: metadata.summary)
+        }
+    }
+    @discardableResult public func updateSuggestions(_ suggestions: HistorySuggestions, id: UUID) throws -> HistoryEntry? {
+        try updateEntry(id) { $0.suggestions = suggestions }
+    }
+    private func updateEntry(_ id: UUID, change: (inout HistoryEntry) -> Void) throws -> HistoryEntry? {
+        try load()
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return nil }
+        var updated = entries
+        change(&updated[index])
+        try writeIndex(updated)
+        entries = updated
+        return updated[index]
+    }
     public func updateText(_ text: String, id: UUID) throws {
-        try load();guard let index=entries.firstIndex(where:{$0.id == id}) else{return}
-        entries[index].text=text;try persistIndex()
+        _ = try updateEntry(id) { $0.text = text }
     }
     public func document(_ id: UUID) throws -> CaptureDocument {try ProjectFile.decode(Data(contentsOf:projectURL(id)))}
+    public func storedDocument(_ id: UUID) throws -> CaptureDocument? {
+        do { return try document(id) }
+        catch let error as CocoaError where error.code == .fileReadNoSuchFile { return nil }
+    }
+    public func wasRemoved(_ id: UUID) -> Bool { removedInSession.contains(id) }
     public func remove(_ id: UUID) throws {
-        try load();entries.removeAll{$0.id == id};try persistIndex()
+        try load()
+        let updated = entries.filter { $0.id != id }
+        try writeIndex(updated)
+        entries = updated
+        removedInSession.insert(id)
+        latestRevisions.removeValue(forKey: id)
         for url in [projectURL(id),thumbnailURL(id),conversationURL(id)] where FileManager.default.fileExists(atPath:url.path) {try FileManager.default.removeItem(at:url)}
     }
     /// Keeps an Ask conversation with its capture. An empty list removes it.
@@ -121,7 +196,7 @@ public actor HistoryStore {
     public func prune(days: Int) throws {
         guard days > 0 else{return}
         let cutoff=Date().addingTimeInterval(-Double(days)*86400)
-        let expired=entries.filter{$0.date < cutoff}.map(\.id)
+        let expired = entries.filter { $0.date < cutoff && $0.metadata?.reminder == nil }.map(\.id)
         for id in expired {try remove(id)}
     }
     public nonisolated func thumbnailURL(_ id: UUID) -> URL {folder.appendingPathComponent(id.uuidString+".png")}

@@ -35,6 +35,18 @@ struct HistoryTests {
         #expect(recovered.count == 1)
         #expect(try FileManager.default.contentsOfDirectory(atPath:folder.path).contains{$0.hasPrefix("index-recovery-")})
     }
+    @Test func lateEditorAutosaveCannotRestoreAnOlderVersion() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = HistoryStore(folder: folder)
+        let old = try document()
+        var edited = old
+        edited.crop = CGRect(x: 0, y: 0, width: 20, height: 20)
+        #expect(try await store.storedDocument(old.id) == nil)
+        try await store.save(edited, revision: 2)
+        try await store.save(old, revision: 1)
+        #expect(try await store.storedDocument(old.id) == edited)
+    }
     @Test func searchToleratesOCRWordSplitsAndLineBreaks() async throws {
         let folder=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer{try? FileManager.default.removeItem(at:folder)}
