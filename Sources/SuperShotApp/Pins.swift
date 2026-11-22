@@ -19,7 +19,8 @@ import Settings
         let window = PinWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.isOpaque = false; window.backgroundColor = .clear
         window.hasShadow = preferences.pinShadow; window.level = .floating
-        window.isMovableByWindowBackground = false; window.acceptsMouseMovedEvents = true
+        window.isMovableByWindowBackground = false
+        window.acceptsMouseMovedEvents = true
         window.collectionBehavior = preferences.pinAllSpaces ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.fullScreenAuxiliary]
         let state = PinState(image: image, window: window, initialSize: size, opacity: preferences.pinOpacity)
         state.unlockKey = unlockKey
@@ -35,6 +36,15 @@ import Settings
         DS.Motion.present(window, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
     }
     func unlockAll() { windows.forEach { $0.state?.locked = false } }
+    func unlockUnderPointer() {
+        guard let state = frontPin(at: NSEvent.mouseLocation)?.state, state.locked else { return }
+        state.locked = false
+    }
+
+    private func frontPin(at pointer: CGPoint) -> PinWindow? {
+        windows.filter { $0.isVisible && $0.frame.contains(pointer) }
+            .min { $0.orderedIndex < $1.orderedIndex }
+    }
 
     private func updateUnlockWatch() {
         let anyLocked = windows.contains { $0.state?.locked == true }
@@ -48,9 +58,10 @@ import Settings
     private func checkUnlock() {
         let pointer = NSEvent.mouseLocation, flags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let held = flags.contains(Self.flag(unlockKey))
+        let target = frontPin(at: pointer)
         for window in windows {
             guard let state = window.state, state.locked else { continue }
-            let over = window.isVisible && window.frame.contains(pointer)
+            let over = window === target
             if state.hinting != over { state.hinting = over }
             // Assign only on change: an @Observable write re-renders the pin even when the value is the same.
             if state.peeking != (over && held) { state.peeking = over && held }
@@ -78,6 +89,10 @@ import Settings
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers?.lowercased() == "w" { close(); return true }
         return super.performKeyEquivalent(with: event)
+    }
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        // Dragging uses global pointer coordinates. Do not constrain it to one display’s work area.
+        frameRect
     }
 }
 
@@ -121,19 +136,23 @@ private struct PinLockBadge: View {
                 if state.peeking {
                     Text("Unlock").font(DS.caption.weight(.semibold)).transition(DS.Motion.pop(reduceMotion: reduceMotion))
                 } else if state.hinting {
-                    Text("Hold \(state.unlockKey.symbol) to unlock").font(DS.caption).transition(DS.Motion.pop(reduceMotion: reduceMotion))
+                    ViewThatFits(in: .horizontal) {
+                        Text("Hold \(state.unlockKey.symbol), then click Unlock").fixedSize()
+                        Text("Hold \(state.unlockKey.symbol)").fixedSize()
+                    }
+                    .font(DS.caption).transition(DS.Motion.pop(reduceMotion: reduceMotion))
                 }
             }
             .foregroundStyle(state.peeking ? DS.onAccent : Color.primary)
             .padding(.horizontal, state.peeking || state.hinting ? DS.md : DS.sm).frame(height: DS.xl + DS.xs)
-            .modifier(GlassSurface(radius: DS.pill, tint: state.peeking ? DS.accent : nil, interactive: state.peeking))
-            .contentShape(Capsule())
+            .modifier(GlassSurface(radius: DS.controlRadius, tint: state.peeking ? DS.accent : nil, interactive: state.peeking))
+            .contentShape(RoundedRectangle(cornerRadius: DS.controlRadius))
         }
         .buttonStyle(PressableStyle())
         .animation(DS.Motion.snappy(reduceMotion), value: state.peeking)
         .animation(DS.Motion.snappy(reduceMotion), value: state.hinting)
         .accessibilityLabel(state.peeking ? "Unlock pin" : "Pin locked. Hold \(state.unlockKey.title) over it, then choose Unlock.")
-        .help(state.peeking ? "Unlock this pin" : "Hold \(state.unlockKey.symbol) to unlock")
+        .help(state.peeking ? "Unlock this pin" : "Hold \(state.unlockKey.title), then click Unlock")
     }
 }
 
@@ -144,12 +163,14 @@ struct PinView: View {
 
     var body: some View {
         ZStack {
-            Image(decorative: state.image, scale: 1).resizable().scaledToFit().allowsHitTesting(false)
+            Image(decorative: state.image, scale: 1)
+                .resizable().scaledToFit().opacity(state.opacity).allowsHitTesting(false)
             PinInteraction(state: state)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .clipShape(RoundedRectangle(cornerRadius: DS.controlRadius))
         .overlay(RoundedRectangle(cornerRadius: DS.controlRadius).strokeBorder(Color.primary.opacity(DS.outlineOpacity)).allowsHitTesting(false))
-        .overlay(alignment: .top) {
+        .overlay(alignment: .topTrailing) {
             if state.locked {
                 PinLockBadge(state: state).padding(DS.sm)
                     .transition(DS.Motion.pop(reduceMotion: reduceMotion))
@@ -157,14 +178,14 @@ struct PinView: View {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: DS.insetStroke) {
                         IconButton("circle-half", label: "Pin opacity", selected: adjustingOpacity) { adjustingOpacity.toggle() }
-                        IconButton("lock-simple-open", label: "Lock pin. Clicks pass through until you hold \(state.unlockKey.symbol) over it and choose Unlock.") { state.locked = true }
+                        IconButton("lock-simple-open", label: "Lock pin here · L") { state.locked = true }
                         IconButton("copy", label: "Copy image") { state.copy() }
                         IconButton("x", label: "Close pin · ⌘W") { state.window?.close() }
                     }.fixedSize()
                     Menu {
                         Button("Copy image") { state.copy() }
                         Button("Restore initial size") { state.restoreSize() }
-                        Button("Lock (clicks pass through)") { state.locked = true }
+                        Button("Lock pin here") { state.locked = true }
                         Button("Opacity…") { adjustingOpacity = true }
                         Button("Close pin") { state.window?.close() }
                     } label: {
@@ -173,7 +194,7 @@ struct PinView: View {
                     }
                     .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).accessibilityLabel("Pin actions")
                 }
-                .padding(DS.capsulePadding).modifier(GlassSurface(radius: DS.pill))
+                .padding(DS.xs).modifier(GlassSurface(radius: DS.smallRadius, interactive: true))
                 .popover(isPresented: $adjustingOpacity) {
                     PinOpacityControl(state: state)
                 }
@@ -188,13 +209,12 @@ struct PinView: View {
                     .padding(DS.xs).allowsHitTesting(false).transition(.opacity)
             }
         }
-        .opacity(state.opacity)
         .animation(DS.Motion.gentle(reduceMotion), value: state.opacity)
         .animation(DS.Motion.panel(reduceMotion), value: state.hovering)
         .animation(DS.Motion.snappy(reduceMotion), value: state.locked)
         .onHover { state.hovering = $0 }
         .accessibilityLabel("Pinned screenshot")
-        .accessibilityHint("Drag to move. Drag any edge to resize. Double-click to restore size. Arrow keys move; plus and minus resize.")
+        .accessibilityHint("Drag the image to move between displays. Drag an edge to resize. Press L to lock this position.")
     }
 }
 
@@ -202,9 +222,14 @@ struct PinOpacityControl: View {
     @Bindable var state: PinState
 
     var body: some View {
-        ValueSlider("Opacity", value: state.opacity, in: 0.2...1,
-                    format: { "\(Int(($0 * 100).rounded()))%" }, onChange: { state.opacity = $0 })
-            .padding(DS.panelPadding).frame(width: DS.pinPopoverWidth)
+        VStack(alignment: .trailing, spacing: DS.sm) {
+            ValueSlider("Opacity", value: state.opacity, in: 0.2...1,
+                        format: { "\(Int(($0 * 100).rounded()))%" }, onChange: { state.opacity = $0 })
+            Button("Reset to 100%") { state.opacity = 1 }
+                .buttonStyle(QuietButtonStyle())
+                .disabled(state.opacity == 1)
+        }
+        .padding(DS.panelPadding).frame(width: DS.pinPopoverWidth)
     }
 }
 
@@ -214,32 +239,38 @@ private struct PinInteraction: NSViewRepresentable {
     func updateNSView(_ view: PinInteractionView, context: Context) {}
 }
 
-private final class PinInteractionView: NSView {
+@MainActor final class PinInteractionView: NSView {
     let state: PinState
-    private var startFrame = CGRect.zero
-    private var startPoint = CGPoint.zero
-    private var edges: PinGeometry.Edges = []
+    private var drag: PinGeometry.Drag?
     init(state: PinState) { self.state = state; super.init(frame: .zero) }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override var acceptsFirstResponder: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) {
-        guard let window else { return }
+        guard !state.locked, let window else { return }
         window.makeKey(); window.makeFirstResponder(self)
+        drag = nil
         if event.clickCount == 2 { state.restoreSize(); return }
-        startFrame = window.frame; startPoint = NSEvent.mouseLocation
-        edges = PinGeometry.edges(at: convert(event.locationInWindow, from: nil), size: bounds.size)
-        if edges.isEmpty { window.performDrag(with: event) }
+        let pointer = window.convertPoint(toScreen: event.locationInWindow)
+        let edges = PinGeometry.edges(at: convert(event.locationInWindow, from: nil), size: bounds.size)
+        drag = PinGeometry.Drag(frame: window.frame, pointer: pointer, edges: edges)
     }
     override func mouseDragged(with event: NSEvent) {
-        guard let window, !edges.isEmpty else { return }
+        guard !state.locked, let window, let drag else { return }
         let point = NSEvent.mouseLocation
-        let result = PinGeometry.resize(startFrame, edges: edges, delta: CGPoint(x: point.x - startPoint.x, y: point.y - startPoint.y),
-                                        available: window.screen?.visibleFrame.size ?? startFrame.size)
-        window.setFrame(result, display: true)
+        let available = NSScreen.screens.first(where: { $0.frame.contains(point) })?.frame.size
+            ?? window.screen?.frame.size ?? window.frame.size
+        let next = drag.frame(at: point, available: available)
+        if next.size == window.frame.size { window.setFrameOrigin(next.origin) }
+        else { window.setFrame(next, display: true) }
     }
-    override func mouseUp(with event: NSEvent) { edges = [] }
+    override func mouseUp(with event: NSEvent) {
+        defer { drag = nil }
+        guard drag != nil, !state.locked, let window else { return }
+        let reachable = PinGeometry.reachable(window.frame, on: NSScreen.screens.map(\.frame))
+        if reachable.origin != window.frame.origin { window.setFrameOrigin(reachable.origin) }
+    }
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .openHand)
         let edge = DS.pinResizeInset
@@ -247,7 +278,7 @@ private final class PinInteractionView: NSView {
         for y in [bounds.minY, bounds.maxY - edge] { addCursorRect(CGRect(x: 0, y: y, width: bounds.width, height: edge), cursor: .resizeUpDown) }
     }
     override func keyDown(with event: NSEvent) {
-        guard let window else { return }
+        guard !state.locked, let window else { return }
         let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
         var frame = window.frame
         switch event.keyCode {
@@ -260,14 +291,15 @@ private final class PinInteractionView: NSView {
             case "+", "=", "-":
                 frame = PinGeometry.resize(frame, edges: [.right, .bottom], delta: CGPoint(x: frame.width * (event.characters == "-" ? -0.1 : 0.1), y: 0), available: window.screen?.visibleFrame.size ?? frame.size)
             case "0": state.restoreSize(); return
+            case "l", "L": drag = nil; state.locked = true; return
             default: super.keyDown(with: event); return
             }
         }
-        window.setFrame(frame, display: true)
+        window.setFrame(PinGeometry.reachable(frame, on: NSScreen.screens.map(\.frame)), display: true)
     }
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = NSMenu()
-        for (title, action) in [("Copy image", #selector(copyImage)), ("Restore initial size", #selector(restore)), ("Lock (clicks pass through)", #selector(lock)), ("Close pin", #selector(closePin))] {
+        for (title, action) in [("Copy image", #selector(copyImage)), ("Restore initial size", #selector(restore)), ("Lock pin here", #selector(lock)), ("Close pin", #selector(closePin))] {
             let item = menu.addItem(withTitle: title, action: action, keyEquivalent: ""); item.target = self
         }
         return menu

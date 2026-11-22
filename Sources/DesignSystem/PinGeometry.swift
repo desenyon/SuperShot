@@ -10,6 +10,43 @@ public enum PinGeometry {
         public static let bottom = Edges(rawValue: 4)
         public static let top = Edges(rawValue: 8)
     }
+
+    public struct Drag: Sendable {
+        private let startFrame: CGRect
+        private let startPointer: CGPoint
+        private let edges: Edges
+
+        public init(frame: CGRect, pointer: CGPoint, edges: Edges) {
+            startFrame = frame
+            startPointer = pointer
+            self.edges = edges
+        }
+
+        public func frame(at pointer: CGPoint, available: CGSize) -> CGRect {
+            let delta = CGPoint(x: pointer.x - startPointer.x, y: pointer.y - startPointer.y)
+            if edges.isEmpty { return startFrame.offsetBy(dx: delta.x, dy: delta.y) }
+            return PinGeometry.resize(startFrame, edges: edges, delta: delta, available: available)
+        }
+    }
+
+    /// Keeps a usable part of the pin on a screen if it ended in a display gap or on a disconnected display.
+    public static func reachable(_ frame: CGRect, on screens: [CGRect]) -> CGRect {
+        let grip = CGSize(width: min(frame.width, DS.xl), height: min(frame.height, DS.xl))
+        if screens.contains(where: {
+            let overlap = $0.intersection(frame)
+            return !overlap.isNull && overlap.width >= grip.width && overlap.height >= grip.height
+        }) { return frame }
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        func distanceSquared(to screen: CGRect) -> CGFloat {
+            let dx = max(screen.minX - center.x, 0, center.x - screen.maxX)
+            let dy = max(screen.minY - center.y, 0, center.y - screen.maxY)
+            return dx * dx + dy * dy
+        }
+        guard let screen = screens.min(by: { distanceSquared(to: $0) < distanceSquared(to: $1) }) else { return frame }
+        let x = min(max(frame.minX, screen.minX - frame.width + grip.width), screen.maxX - grip.width)
+        let y = min(max(frame.minY, screen.minY - frame.height + grip.height), screen.maxY - grip.height)
+        return CGRect(origin: CGPoint(x: x, y: y), size: frame.size)
+    }
     public static func edges(at point: CGPoint, size: CGSize, inset: CGFloat = DS.pinResizeInset) -> Edges {
         var edges: Edges = []
         if point.x < inset { edges.insert(.left) }
