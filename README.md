@@ -1,109 +1,107 @@
 # SuperShot
 
-A native macOS screenshot editor with floating Liquid Glass controls, editable annotations, backdrops, local OCR, a searchable capture library, and **Ask**: chat about any capture with your own ChatGPT or Claude plan. Requires macOS 26 or newer. Built with Swift 6 and Apple frameworks, with no third-party code dependencies. Interface icons are Phosphor (MIT, embedded as SVG; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). SuperShot itself makes no network calls; Ask hands questions to the Codex or Claude Code CLI on your Mac, only when you send one.
+**Capture, annotate, and record your Mac.** SuperShot puts screenshot tools in the menu bar, opens edits in a native Liquid Glass workspace, and keeps your captures in a searchable local Library.
 
-![SuperShot editor in dark appearance](docs/previews/editor-dark.png)
+[Download for Apple Silicon](https://github.com/desenyon/SuperShot/releases/latest) · [Changelog](CHANGELOG.md) · [Verification](docs/verification/2026-11-21-0.2.0.md)
 
-Images in `docs/previews/` are rendered offscreen by `scripts/preview.sh`. Floating surfaces use Liquid Glass in the running app and appear opaque in these renders.
+![SuperShot’s screenshot editor with backdrop controls and a marked-up image](docs/previews/editor-dark.png)
 
-## Release 0.1.1
+## Get started
 
-Ask with ChatGPT now works even when your Codex config has MCP servers. New one-tap **Solve, Explain, Suggest, Improve** actions, real Liquid Glass on the bar after an area selection and on the thumbnail, easier pin unlocking, and a smaller menu bar logo. Version **0.1.1**, build **8**. See [CHANGELOG.md](CHANGELOG.md) for every change and the [0.1.1 verification report](docs/verification/2026-11-18-0.1.1.md) for tests and live glass captures.
+SuperShot requires **macOS 26 or newer**. Download the ZIP from GitHub Releases, unzip it, and move **SuperShot.app** to Applications. The downloadable build uses a local development signature and is unnotarized.
 
-![Ask in the editor](docs/previews/editor-ask-dark.png)
+Open SuperShot from the menu bar and follow the optional capture practice. Grant Screen Recording access when you’re ready to capture. You can revisit the tour under **Help → Welcome Tour** or manage access in **Settings → Privacy**.
 
-![The area-selection bar in Liquid Glass](docs/verification/0.1.1-glass/live-overlay-area-light.png)
+| Capture | Default shortcut |
+| --- | --- |
+| Display under the pointer | ⌃⇧⌘3 |
+| Area | ⌃⇧⌘4 |
+| Window | ⌃⇧⌘5 |
 
-### Ask
+Find timed captures, all displays, scrolling capture, text recognition, QR scanning, and the previous area in the menu. Change bindings or import a profile in **Settings → Shortcuts**.
 
-Ask a question about a capture and get an answer next to it:
+## Screenshots
 
-- **Editor:** the Ask tab in the right panel. Tap **Solve**, **Explain**, **Suggest**, or **Improve** above the typing bar, or type a question. Attach a region with the dashed-square button, stop a reply with Stop, and use Copy, Add as text, or Show on image on any answer.
-- **Right after a capture:** choose **Ask** on the area-selection bar, or the Ask button on the quick-access thumbnail. A chat panel opens beside the thumbnail; Open in editor carries the conversation over.
+| Capture | Organize |
+| --- | --- |
+| ![Frozen area selection with the capture action bar](docs/previews/overlay-area-light.png) | ![Library with capture metadata and a thumbnail grid](docs/previews/library-inspector-light.png) |
 
-Ask uses a subscription you already have through a command-line tool on this Mac. SuperShot never sees a password, token, or API key; each tool owns its own sign-in.
+- **Capture Area** lets you adjust a selection and then copy, save, edit, pin, or Ask. Enable **Capture on mouse release** to skip Return on a new drag. **Always copy** adds clipboard output alongside your other capture actions.
+- **Capture Disposable Area** keeps a shot in the session. Reopen it from **Recent Captures**, or choose **Keep in Library** to save it.
+- **Edit** with crop, arrows, shapes, freehand, text, counters, spotlight, magnifier, blur, and pixelation. Frame the image with a backdrop, shadow, padding, or watermark. Save the look as a reusable preset.
+- **Export** to PNG, JPEG, HEIC, TIFF, PDF, or other formats supported by macOS. Save a `.supershot` project to reopen the editable layers later.
+- **Pin** by dragging the image anywhere on a connected display. Click **Lock in place** or press **L**. Hold **Option** over the pin and click **Unlock**.
+- **Library** searches recognized text and stores titles, folders, notes, tags, and reminders. Local organization suggestions are optional. **Settings → Output → Keep exported files updated** can link an automatically saved image to its editable project.
 
-| Provider | Tool | Sign in |
-|---|---|---|
-| ChatGPT (default) | [Codex CLI](https://github.com/openai/codex) `codex app-server` | Settings → Assistant → Sign in with ChatGPT opens your browser |
-| Claude | [Claude Code](https://claude.com/claude-code) `claude -p` | Settings → Assistant → Sign in opens Terminal with `claude auth login` |
+## Webpage capture and recording
 
-Ask turns off every MCP server in your Codex config for its own conversations, without editing the config. Before the first upload in a conversation, Ask says which company receives the image (OpenAI or Anthropic). You can include on-device recognized text, blur sensitive details first with Smart redact, and keep conversations with captures in History. Conversations run read-only: the tools are started with commands, file edits, plugins, and MCP servers disabled. Set the provider to **Off** to hide Ask everywhere.
+| Webpage capture | Recording editor |
+| --- | --- |
+| ![Capture Webpage with custom viewport dimensions and dark page appearance](docs/previews/webpage-custom-light.png) | ![Recording editor with an annotation selected on the timeline](docs/previews/recording-markup-dark.png) |
 
-### Customize
+- **Capture Webpage** opens the URL in a temporary Chromium profile when you click **Capture**. Choose a viewport or full page, a preset or custom size, and light or dark page appearance. Requires Chrome, Chromium, Edge, or Brave.
+- **Record Screen** captures a display, window, or area. Preview the source, choose the frame rate and resolution, and optionally record the cursor, system audio, microphone, or camera.
+- **Recording Editor** supports trim, cuts, zoom, timed annotations and camera layouts, transcript edits, captions, and audio controls. Export MP4 or GIF, or save subtitles as SRT or WebVTT. On-device transcription depends on installed speech assets.
+- **Share Review Link** uploads a flattened image or rendered recording to your configured server after confirmation. Guests can comment, react, mark an image, or leave timestamped video feedback. [Self-hosted setup](tools/review-links/README.md)
 
-Settings → Appearance: System, Light, or Dark; accent (blue, teal, graphite, or tangerine); compact or regular density; glass or solid floating chrome; and the order and visibility of editor tools, area-selection buttons (with or without labels), and thumbnail buttons.
+## Ask about a capture
 
-## Run locally
+Open **Ask** from the selection bar, thumbnail, or screenshot editor. In the recording editor, choose **Use Playhead** to prepare the edited frame. The video, audio, and transcript file stay on your Mac.
+
+![Ask alongside the selected recording frame and timeline](docs/previews/recording-ask-dark.png)
+
+Install the [Codex CLI](https://github.com/openai/codex), then choose **Settings → Assistant → Sign in with ChatGPT**. The public build uses ChatGPT Ask. If you used Claude in an earlier version, select ChatGPT explicitly to turn Ask back on.
+
+You can include recognized text, review a region attachment, or apply Smart Redact before sending. Ask shows the destination before the first upload when confirmation is enabled. It uses a read-only conversation and disables configured MCP servers for its Codex sessions.
+
+## Settings
+
+![Settings with the full-height blue sidebar and the Appearance page](docs/previews/settings-appearance-dark.png)
+
+Choose System, Light, or Dark, change the accent and density, or use solid chrome. Reorder editor tools, selection actions, and thumbnail buttons. **Settings → Pins & previews** controls size, placement, opacity, and dismissal.
+
+The screenshots above come from offscreen renders. They show the solid glass fallback used for previews.
+
+## Build from source
 
 ```zsh
 export EDITOR=vim VISUAL=vim GIT_EDITOR=vim
 swift build
-scripts/setup-signing.sh # first checkout only; skip when .local-signing already exists
+scripts/setup-signing.sh # first checkout only
 scripts/bundle.sh
 open dist/SuperShot.app
 ```
 
-The bundle script builds an optimized release by default and refuses to replace a running app. To stage an update while working, run `BUNDLE_OUTPUT_DIR="$PWD/dist/Updated" scripts/bundle.sh`. Quit SuperShot normally before installing the staged bundle; this flushes pending editor saves. The bundle script stages and verifies the new app before replacing the previous bundle. A stable local signing certificate preserves its code identity across rebuilds. This is a development signature, not a notarized distribution build. Keep `.local-signing/` private.
+To stage a signed build without replacing the running copy, use `BUNDLE_OUTPUT_DIR="$PWD/dist/Updated" scripts/bundle.sh`. Keep `.local-signing/` private. Builds use Swift 6 and native Apple frameworks. [Third-party notices](THIRD_PARTY_NOTICES.md)
 
-Allow Screen Recording from the one-time setup or Settings → Privacy. Closing setup marks it as seen; reopening the app opens Settings instead of repeating setup. SuperShot lives in the menu bar by default; Settings can enable a Dock icon or launch at login.
+<details>
+<summary>Automation and verification</summary>
 
-| Capture | Default shortcut |
-|---|---|
-| Screen under the pointer | Control–Shift–Command–3 |
-| Area | Control–Shift–Command–4 |
-| Window | Control–Shift–Command–5 |
-
-All capture actions are available from the menu. Settings → Shortcuts records replacements, detects conflicts, and imports/exports profiles. The system screenshot preset explains how to disable conflicting macOS shortcuts.
-
-## Included
-
-- Screen, window, frozen area, previous area, timed, all-display, text, barcode, and vertical scrolling capture flows. Manual scrolling is the default; optional automatic scrolling requests Accessibility access when enabled.
-- Independent copy/save/editor/thumbnail/pin actions; a separate area-capture preference. Settings → Capture → Quick capture adds **Automatically copy screenshots** (copies alongside other actions, including area capture) and **Capture on mouse release** (skip Enter for a new area drag). Both switches default off. Escape cancels; clicks and zero-area drags do not capture. Text, barcode, and scrolling workflows retain their existing confirmation behavior.
-- Non-destructive crop and annotation layers: arrows, shapes, text, drawing, highlighter, counters, spotlight, magnifier, blur, pixelation, color erase, ruler, and pasted images. Undo/redo, selection transforms, zoom, color picking, and image metadata.
-- Transparent, solid, gradient, and wallpaper backdrops; twelve built-in multi-stop gradients with adjustable angle; padding, inset frame, rounded corners, shadows, alignment, aspect presets, trimming, balancing, and reusable presets.
-- Runtime-supported image formats, PDF, clipboard format, 1× export, color-profile settings, filename templates, and optional editable `.supershot` sidecars.
-- Local Vision OCR and codes, smart-redaction review, subject lifting, text extraction, and OCR-indexed history. Conditional Apple Intelligence and installed-language translation actions report availability. Patch erase and 2×/4× resampling are explicitly labeled.
-- Floating pins with native image dragging, aspect-preserving edge/corner resizing, double-click size reset, opacity and click-through lock. Arrow keys move a focused pin; +/− resize and 0 restores its size. To unlock a locked pin, hover it, hold ⌥ (configurable in Settings → Pins & previews), and click Unlock; Unlock All Pins is also in the menu.
-- Settings → Pins & previews controls thumbnail corner, width, auto-dismiss interval, and new-pin size, opacity, shadow, and Space visibility. The thumbnail dismissal timer pauses under the pointer.
-- Searchable settings navigation, native sharing, image drag/drop, retention settings, shortcut profiles, and URL automation.
-
-- Ask about a capture through ChatGPT (Codex) or Claude (Claude Code), with region attachments, streaming replies, consent before upload, optional redaction, and conversations kept with captures in History.
-- Settings → Appearance for accent, density, chrome, and toolbar contents; one motion system for panels, tools, thumbnails, messages, and windows that reduces to crossfades under Reduce Motion.
-
-Original pixels remain in editable projects and history. Share a flattened exported image when redacting content. Nothing is uploaded unless you send an Ask question; then the image goes to the provider you chose.
-
-## Automation
-
-Use these with Shortcuts' **Open URLs** action or the terminal:
+Use these URLs from Shortcuts’ **Open URLs** action or the terminal.
 
 ```zsh
 open 'supershot://capture?mode=area'
-open 'supershot://capture?mode=screen'
-open 'supershot://capture?mode=scrolling'
 open 'supershot://capture?mode=area&delay=3'
+open 'supershot://capture?mode=disposable'
+open 'supershot://capture?mode=webpage'
 open 'supershot://history'
+open 'supershot://recent'
+open 'supershot://record'
+open 'supershot://recordings'
 ```
 
-Other capture modes: `window`, `all`, `previous`, `text`, and `code`. A delay of 3, 5, or 10 seconds starts a timed **area** capture. Open an image or project through the menu, drag it onto an editor, or run `open -a "$PWD/dist/SuperShot.app" /path/to/image.png`.
-
-Native App Intent declarations are included, but this Command Line Tools installation has no metadata extractor. Native Shortcuts action discovery is not verified; the URL scheme is the supported local automation route.
-
-## Verification and current limits
+Capture modes also include `screen`, `window`, `all`, `previous`, `scrolling`, `text`, and `code`. Timed area capture accepts 3, 5, or 10 seconds. The URL scheme works with Command Line Tools builds. Native App Intent discovery requires an Xcode build with metadata extraction.
 
 ```zsh
-scripts/test-background.sh # offscreen checks while using the Mac
-scripts/preview.sh         # render every screen to docs/previews without showing a window
-scripts/test.sh
+scripts/test-background.sh
+scripts/preview.sh
 scripts/benchmark.sh
-SUPERSHOT_LIVE_ASK=1 scripts/test.sh --filter Live   # real Ask turns through your signed-in Codex (uses your plan)
-dist/SuperShot.app/Contents/MacOS/SuperShot --live-preview /tmp/glass .build/preview/fixture.png   # capture real Liquid Glass
+SUPERSHOT_TEST_WEBPAGE=1 scripts/test.sh --filter URLCapture
+SUPERSHOT_LIVE_ASK=1 scripts/test.sh --filter Live
 ```
 
-The background command uses lower CPU priority and two build jobs, and excludes the recorder-window test. It checks document editing, rendering snapshots, synthetic scrolling frames, local OCR/QR, export, history, and settings without launching SuperShot or interacting with the desktop. It is not a macOS VM: live capture, permissions, focus, and visual appearance still require a separate macOS desktop or a scheduled interactive session. Keep desktop-dependent tests out of this command as coverage grows.
+The opt-in live Ask tests use your signed-in plan. Offscreen tests and previews cover rendering, selection, local recognition, capture workflows, and exports. See the [verification report](docs/verification/2026-11-21-glass-audit.md) for coverage and the remaining macOS desktop checks.
 
-The test wrapper handles this machine's Swift Testing plugin discovery. Benchmarks use a synthetic 5120×2880 image with 200 vector annotations; they do not establish full interactive-canvas or effect-heavy frame rates.
+</details>
 
-See the [0.1.1 verification report](docs/verification/2026-11-18-0.1.1.md) for this release and the [0.1.0 report](docs/verification/2026-11-18-0.1.0.md) for the previous one. See the [quick capture update](docs/verification/2026-11-16-quick-capture.md) for auto-copy, release-to-capture, and the latest regression checks. See the [settings and pins update](docs/verification/2026-11-16-settings-pins.md) for the latest checks. See the [verification report](docs/verification/2026-11-16.md) for test results, measured timings, audit fixes, UI screenshots, and unverified flows. The broader product specification in [AGENTS.md](AGENTS.md) is still the roadmap. This build does not include downloadable generative models, API-key cloud providers, horizontal stitching, video/GIF recording, or cloud share links.
-
-Data is stored locally under `~/Library/Application Support/SuperShot`. Preferences use the `dev.desenyon.SuperShot` defaults domain. Imported originals and project layers are preserved; history retention is configurable.
+Captures are stored under `~/Library/Application Support/SuperShot`. Editable projects preserve the original pixels. Share a flattened export when you want redactions baked into what recipients see.
