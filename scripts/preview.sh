@@ -7,8 +7,9 @@ set -euo pipefail
 export EDITOR=vim VISUAL=vim GIT_EDITOR=vim
 cd "${0:A:h:h}"
 output="${1:-docs/previews}"
-swift build >/dev/null
+configuration="${CONFIGURATION:-debug}"
+swift build -c "$configuration" >/dev/null
 mkdir -p .build/preview "$output"
 swift scripts/make-editor-fixture.swift .build/preview/fixture.png
-"$(swift build --show-bin-path)/SuperShot" --render-previews "$output" .build/preview/fixture.png
+"$(swift build -c "$configuration" --show-bin-path)/SuperShot" --render-previews "$output" .build/preview/fixture.png
 print "Rendered previews to $output"
