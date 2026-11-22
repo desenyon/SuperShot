@@ -54,6 +54,19 @@ public struct Layer: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+public struct ImageWatermark: Codable, Equatable, Sendable {
+    public var text: String
+    /// A normalized position measured from the top-left of the output.
+    public var anchor: CGPoint
+    public var opacity: Double
+
+    public init(text: String, anchor: CGPoint = CGPoint(x: 1, y: 1), opacity: Double = 0.65) {
+        self.text = text
+        self.anchor = anchor
+        self.opacity = opacity
+    }
+}
+
 public struct Backdrop: Codable, Equatable, Sendable {
     public enum Fill: String, Codable, CaseIterable, Sendable { case none, solid, gradient, wallpaper }
     public var fill: Fill = .none
@@ -73,6 +86,7 @@ public struct Backdrop: Codable, Equatable, Sendable {
     public var angle: Double?
     /// Width of a frame around the image, filled with the image's edge color.
     public var inset: Double?
+    public var watermark: ImageWatermark?
     public init() {}
     public var gradientStops: [RGBA] { (stops?.count ?? 0) >= 2 ? stops! : [color, secondaryColor] }
 }
@@ -85,6 +99,8 @@ public struct CaptureDocument: Codable, Equatable, Sendable, Identifiable {
     public var scale: Double
     public var date: Date
     public var source: String
+    public var sourceApplication: String?
+    public var sourceWindow: String?
     public var preserveColorProfile: Bool?
     public var metadata: [String: String]?
     public var processedBase: Data?
@@ -148,6 +164,10 @@ public enum ProjectFile {
         let b=doc.backdrop
         guard doc.width*doc.height<=160_000_000,doc.scale.isFinite,doc.scale>=0.1,doc.scale<=8 else {throw Error.invalidDimensions}
         guard b.padding.isFinite,(0...4096).contains(b.padding),b.radius.isFinite,(0...4096).contains(b.radius),b.shadow.isFinite,(0...1).contains(b.shadow),b.ratio.isFinite,(b.ratio == 0 || (0.01...100).contains(b.ratio)),b.alignmentX.isFinite,(0...1).contains(b.alignmentX),b.alignmentY.isFinite,(0...1).contains(b.alignmentY),b.blur.isFinite,(0...1000).contains(b.blur),(b.inset.map{$0.isFinite && (0...1024).contains($0)} ?? true),(b.angle.map{$0.isFinite && abs($0)<=3600} ?? true),(b.stops?.count ?? 0)<=16 else {throw Error.invalidGeometry}
+        if let mark = b.watermark {
+            guard mark.text.count <= 120, (0...1).contains(mark.opacity),
+                  (0...1).contains(mark.anchor.x), (0...1).contains(mark.anchor.y) else { throw Error.invalidGeometry }
+        }
         func valid(_ rect:CGRect)->Bool {[rect.origin.x,rect.origin.y,rect.width,rect.height].allSatisfy{$0.isFinite && abs($0)<1_000_000}}
         guard doc.crop.map(valid) ?? true,doc.layers.allSatisfy({layer in
             valid(layer.rect) && layer.points.allSatisfy{$0.x.isFinite && $0.y.isFinite && abs($0.x)<1_000_000 && abs($0.y)<1_000_000} && layer.stroke.isFinite && (0...4096).contains(layer.stroke) && layer.opacity.isFinite && (0...1).contains(layer.opacity) && layer.fontSize.isFinite && (1...4096).contains(layer.fontSize) && layer.rotation.isFinite && (layer.arrowBend.map{$0.isFinite && abs($0)<=10} ?? true)
@@ -165,6 +185,28 @@ public struct BackdropPreset: Codable, Equatable, Identifiable, Sendable {
     public var name:String
     public var backdrop:Backdrop
     public init(id:UUID=UUID(),name:String,backdrop:Backdrop){self.id=id;self.name=name;self.backdrop=backdrop}
+}
+
+public enum BackdropPresetTransfer {
+    private struct File: Codable {
+        let version: Int
+        let preset: BackdropPreset
+    }
+
+    public static func encode(_ preset: BackdropPreset) throws -> Data {
+        try JSONEncoder().encode(File(version: 1, preset: preset))
+    }
+
+    public static func decode(_ data: Data) throws -> BackdropPreset {
+        let file = try JSONDecoder().decode(File.self, from: data)
+        guard file.version == 1 else { throw ProjectFile.Error.unsupportedVersion }
+        let name = file.preset.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.count <= 120 else { throw ProjectFile.Error.invalidGeometry }
+        var probe = CaptureDocument(original: Data(), width: 640, height: 480)
+        probe.backdrop = file.preset.backdrop
+        _ = try ProjectFile.decode(ProjectFile.encode(probe))
+        return BackdropPreset(id: file.preset.id, name: name, backdrop: probe.backdrop)
+    }
 }
 
 public extension Layer {

@@ -106,8 +106,46 @@ public enum DocumentRenderer {
             draw(layer, document: document, layout: layout, scale: scale, context: context)
         }
         context.restoreGState()
+        if let watermark = document.backdrop.watermark {
+            drawWatermark(watermark, within: bounds, context: context)
+        }
         guard let result = context.makeImage() else { throw Error.invalidImage }
         return result
+    }
+
+    private static func drawWatermark(_ watermark: ImageWatermark, within bounds: CGRect, context: CGContext) {
+        let value = watermark.text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard !value.isEmpty, watermark.opacity > 0, bounds.width >= 40, bounds.height >= 24 else { return }
+        let fontSize = max(9, min(72, min(bounds.width, bounds.height) * 0.027))
+        let margin = fontSize * 0.8
+        let font = CTFontCreateUIFontForLanguage(.emphasizedSystem, fontSize, nil)
+            ?? CTFontCreateWithName("HelveticaNeue-Medium" as CFString, fontSize, nil)
+        let attributes: [NSAttributedString.Key: Any] = [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(gray: 1, alpha: 1)
+        ]
+        let fullLine = CTLineCreateWithAttributedString(NSAttributedString(string: value, attributes: attributes))
+        let available = max(1, bounds.width - margin * 4)
+        let ellipsis = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: attributes))
+        let line = CTLineCreateTruncatedLine(fullLine, available, .end, ellipsis) ?? fullLine
+        let width = min(available, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))) + margin * 2
+        let height = min(bounds.height - margin, fontSize * 1.75)
+        let x = margin + max(0, bounds.width - width - margin * 2) * watermark.anchor.x
+        let y = margin / 2 + (bounds.height - height - margin) * watermark.anchor.y
+        let rect = CGRect(x: x, y: y, width: width, height: height)
+        context.saveGState()
+        context.clip(to: rect)
+        context.setAlpha(watermark.opacity)
+        context.beginTransparencyLayer(auxiliaryInfo: nil)
+        context.setFillColor(CGColor(gray: 0, alpha: 0.78))
+        context.addPath(CGPath(roundedRect: rect, cornerWidth: margin / 2, cornerHeight: margin / 2, transform: nil))
+        context.fillPath()
+        context.translateBy(x: rect.minX + margin, y: rect.midY + CTFontGetCapHeight(font) / 2)
+        context.scaleBy(x: 1, y: -1)
+        context.textPosition = .zero
+        CTLineDraw(line, context)
+        context.endTransparencyLayer()
+        context.restoreGState()
     }
     private static func drawBackdrop(_ backdrop: Backdrop, bounds: CGRect, context: CGContext) {
         guard backdrop.fill != .none else { return }

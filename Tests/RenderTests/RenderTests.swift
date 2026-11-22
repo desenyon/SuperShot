@@ -43,6 +43,19 @@ struct RenderTests {
         let second = try DocumentRenderer.render(doc)
         #expect(first.dataProvider?.data as Data? == second.dataProvider?.data as Data?)
     }
+    @Test func watermarkCompositesInTheChosenOutputCorner() throws {
+        var document = try fixture()
+        let base = try DocumentRenderer.render(document)
+        document.backdrop.watermark = ImageWatermark(text: "Review", anchor: CGPoint(x: 0, y: 0), opacity: 0.8)
+        let result = try DocumentRenderer.render(document)
+        let transparent = try #require(DocumentRenderer.decode(document.original))
+        #expect(result.width == base.width && result.height == base.height)
+        #expect(result.dataProvider?.data as Data? != base.dataProvider?.data as Data?)
+        #expect(DocumentRenderer.sample(result, at: CGPoint(x: 75, y: 50)) == DocumentRenderer.sample(transparent, at: CGPoint(x: 75, y: 50)))
+        document.backdrop.watermark?.opacity = 0
+        let hidden = try DocumentRenderer.render(document)
+        #expect(hidden.dataProvider?.data as Data? == base.dataProvider?.data as Data?)
+    }
 }
 
 extension RenderTests {
