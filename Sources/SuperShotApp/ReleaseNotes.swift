@@ -25,13 +25,13 @@ struct PublishedRelease: Decodable, Sendable {
     private var request: Task<Void, Never>?
     private(set) var release: PublishedRelease?
     private(set) var failure: String?
-    let installedVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.1"
+    let installedVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.0"
     static let page = URL(string: "https://github.com/desenyon/SuperShot/releases")!
 
     static func preview() -> some View {
         let controller = ReleaseNotesController()
-        controller.release = PublishedRelease(tagName: "v0.1.1", name: "SuperShot 0.1.1",
-            body: "Updated screenshot controls, easier pin unlocking, and improvements to Ask.",
+        controller.release = PublishedRelease(tagName: "v0.2.0", name: "SuperShot 0.2.0",
+            body: "Screen recording and editing, webpage capture, a searchable Library, and a new Settings sidebar.",
             htmlURL: page)
         return ReleaseNotesView(controller: controller)
     }

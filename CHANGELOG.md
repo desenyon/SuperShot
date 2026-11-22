@@ -2,6 +2,37 @@
 
 All notable changes to SuperShot. Versions follow `CFBundleShortVersionString`; build numbers follow `CFBundleVersion`.
 
+## 0.2.0 (build 9) · 2026-11-21
+
+### Recording and review
+
+- Record a display, window, or area. Setup includes a display map, a source preview, resolution and frame rate, a countdown, camera layouts, and optional cursor, system audio, and microphone.
+- Edit with trim, cuts, frame stepping, click zoom, seven timed annotation tools, nine camera layouts, per-track audio controls, undo and redo, transcripts, and captions. Export edited MP4 or GIF, plain text transcripts, SRT, or WebVTT.
+- Ask a question about the edited frame at the playhead. Frame selection and region attachment take place locally before sending.
+- Share rendered screenshots or recordings using optional self-hosted Review Links. Guests can leave comments, reactions, image markers, or timestamped video feedback.
+
+### Capture and Library
+
+- Capture webpages at desktop, tablet, phone, or custom viewport sizes with light or dark appearance. Full-page captures load deferred content, recover from stalled assets, and close the temporary Chromium profile. The panel keeps Capture, Cancel, and Retry beside the URL.
+- Add disposable screenshots, an action shelf with visible Keep controls, and a Recent Captures window for the current session.
+- Organize the Library by date, title, tags, folder, notes, and reminders. Opt in to local metadata suggestions or link an automatically saved image to its editable Library project.
+- Add watermark controls, portable backdrop presets, and export dimensions. Output filename templates distinguish the source application and window title.
+- Add guided first-capture practice, an explicit permission handoff, and a Welcome Tour menu item.
+
+### Interface and Ask
+
+- Rework all nine Settings pages with a full-height glass sidebar, six quick destinations, grouped navigation, and search. Refine the screenshot editor, capture bars, thumbnails, recording workspace, and utility windows using shared glass surfaces and Phosphor icons.
+- Drag pins across displays, resize from edges, or lock them in place from the hover controls or with **L**. Hold the configured unlock modifier to reveal the Unlock button.
+- Preview attached regions and redactions before sending. Edits refresh Ask’s source image and invalidate consent for an earlier version of the image.
+- Public builds offer ChatGPT Ask through Codex. The Claude Code subscription transport stays in local debug builds. A previous Claude selection resolves to Off until you select ChatGPT.
+- Add URL commands for the new workflows, native intent declarations, a manual update check, and a feedback menu item.
+
+### Fixes
+
+- Thumbnail copy, save, pin, and drag resolve the latest edited capture. Library deletion and linked export handling preserve edits and respect externally replaced files.
+- Recognition captures preserve the previous screenshot area. Preset shortcuts apply to the current editable capture, and auto-scroll pauses on a stitching overlap failure.
+- A shortcut registration conflict leaves unrelated shortcuts active. System shortcut presets and profile imports preserve unrelated bindings.
+
 ## 0.1.1 (build 8) · 2026-11-18
 
 ### Fixed
