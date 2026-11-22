@@ -20,7 +20,7 @@ public enum OverlayAction: String, CaseIterable, Sendable {
 @MainActor public final class SelectionOverlay {
     private var window: OverlayWindow?
     public init() {}
-    public func show(screen: NSScreen, capture: CapturedImage, windows: [CaptureWindow]? = nil, snappingWindows: [CaptureWindow] = [], showsActions: Bool = false, captureOnRelease: Bool = false, overlayActions: [OverlayAction] = OverlayAction.allCases, showsLabels: Bool = true, completion: @escaping (CGRect?, CGWindowID?, OverlayAction) -> Void) {
+    public func show(screen: NSScreen, capture: CapturedImage, windows: [CaptureWindow]? = nil, snappingWindows: [CaptureWindow] = [], showsActions: Bool = false, captureOnRelease: Bool = false, overlayActions: [OverlayAction] = OverlayAction.allCases, showsLabels: Bool = true, selectionTint: NSColor? = nil, selectionTintOpacity: Double? = nil, completion: @escaping (CGRect?, CGWindowID?, OverlayAction) -> Void) {
         dismiss()
         let window = OverlayWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.level = .screenSaver; window.backgroundColor = .clear; window.isOpaque = false
@@ -33,6 +33,8 @@ public enum OverlayAction: String, CaseIterable, Sendable {
         view.showsLabels = showsLabels
         view.showsActions = showsActions
         view.captureOnRelease = captureOnRelease
+        view.selectionTint = selectionTint
+        view.selectionTintOpacity = selectionTintOpacity
         window.contentView = view; self.window = window
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil); window.makeFirstResponder(view)
@@ -63,6 +65,8 @@ private final class OverlayWindow: NSWindow { override var canBecomeKey: Bool { 
     var overlayActions = OverlayAction.allCases
     var showsLabels = true
     var showsActions = false
+    var selectionTint: NSColor?
+    var selectionTintOpacity: Double?
     private var actionBar: AreaActionBar?
     static func orderedActions(_ requested: [OverlayAction]) -> [OverlayAction] {
         var seen = Set<OverlayAction>()
@@ -125,15 +129,23 @@ private final class OverlayWindow: NSWindow { override var canBecomeKey: Bool { 
         dim.windingRule = .evenOdd; dim.fill()
 
         if !selection.isEmpty {
+            let accent = selectionTint ?? DS.nsAccent
             if choices != nil {
                 // Window mode: a tinted highlight with the window's name.
                 let highlight = NSBezierPath(roundedRect: selection.insetBy(dx: 1, dy: 1), xRadius: 10, yRadius: 10)
-                DS.nsAccent.withAlphaComponent(0.18).setFill(); highlight.fill()
-                DS.nsAccent.setStroke(); highlight.lineWidth = 2; highlight.stroke()
+                accent.withAlphaComponent(selectionTintOpacity ?? 0.18).setFill(); highlight.fill()
+                accent.setStroke(); highlight.lineWidth = 2; highlight.stroke()
                 if let title = choices?.first(where: { $0.id == selectedWindow })?.title, !title.isEmpty {
-                    badge(title, centeredAt: CGPoint(x: selection.midX, y: selection.midY), font: DS.hintFont)
+                    let below = selection.maxY + DS.sm + DS.badgeHeight / 2
+                    let above = selection.minY - DS.sm - DS.badgeHeight * 1.5
+                    let titleY = below + DS.badgeHeight / 2 < bounds.maxY ? below : above
+                    badge(title, centeredAt: CGPoint(x: selection.midX, y: titleY), font: DS.hintFont)
                 }
             } else {
+                if let selectionTintOpacity, selectionTintOpacity > 0 {
+                    accent.withAlphaComponent(selectionTintOpacity).setFill()
+                    NSBezierPath(rect: selection).fill()
+                }
                 // A dark hairline under a white line stays visible on any content.
                 NSColor.black.withAlphaComponent(0.35).setStroke()
                 let shadow = NSBezierPath(rect: selection.insetBy(dx: -1, dy: -1)); shadow.lineWidth = 1; shadow.stroke()
@@ -156,7 +168,7 @@ private final class OverlayWindow: NSWindow { override var canBecomeKey: Bool { 
                     let glow = NSShadow(); glow.shadowBlurRadius = 3; glow.shadowColor = NSColor.black.withAlphaComponent(0.45); glow.set()
                     NSColor.white.setFill(); handle.fill()
                     NSGraphicsContext.restoreGraphicsState()
-                    DS.nsAccent.setStroke(); handle.lineWidth = DS.overlayLine; handle.stroke()
+                    accent.setStroke(); handle.lineWidth = DS.overlayLine; handle.stroke()
                 }
             }
             let rect = SelectionGeometry.pixels(selection: selection, viewSize: bounds.size, imageSize: CGSize(width: capture.image.width, height: capture.image.height))
@@ -164,10 +176,11 @@ private final class OverlayWindow: NSWindow { override var canBecomeKey: Bool { 
             badge("\(Int(rect.width)) × \(Int(rect.height))", centeredAt: CGPoint(x: selection.midX, y: (above < DS.sm ? selection.minY + DS.sm : above) + DS.badgeHeight / 2), font: DS.overlayFont)
         }
         if choices == nil && selection.isEmpty {
-            NSColor.white.withAlphaComponent(0.5).setStroke()
-            let cross = NSBezierPath(); cross.lineWidth = 0.5
+            let cross = NSBezierPath()
             cross.move(to: CGPoint(x: pointer.x, y: 0)); cross.line(to: CGPoint(x: pointer.x, y: bounds.height))
-            cross.move(to: CGPoint(x: 0, y: pointer.y)); cross.line(to: CGPoint(x: bounds.width, y: pointer.y)); cross.stroke()
+            cross.move(to: CGPoint(x: 0, y: pointer.y)); cross.line(to: CGPoint(x: bounds.width, y: pointer.y))
+            NSColor.black.withAlphaComponent(0.55).setStroke(); cross.lineWidth = 2; cross.stroke()
+            NSColor.white.withAlphaComponent(0.7).setStroke(); cross.lineWidth = 0.75; cross.stroke()
             drawLoupe()
         }
         let hint = choices != nil ? "Click a window   ·   esc to cancel"
@@ -211,14 +224,17 @@ private final class OverlayWindow: NSWindow { override var canBecomeKey: Bool { 
     private func badge(_ text: String, centeredAt point: CGPoint, font: NSFont, height: CGFloat = DS.badgeHeight) {
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.white]
         let size = (text as NSString).size(withAttributes: attributes)
-        let width = size.width + height * 0.9
+        let width = min(bounds.width - DS.md, size.width + height * 0.9)
         var rect = CGRect(x: point.x - width / 2, y: point.y - height / 2, width: width, height: height)
         rect.origin.x = max(DS.sm, min(rect.origin.x, bounds.width - width - DS.sm))
         rect.origin.y = max(DS.sm, min(rect.origin.y, bounds.height - height - DS.sm))
-        let pill = NSBezierPath(roundedRect: rect, xRadius: height / 2, yRadius: height / 2)
+        let pill = NSBezierPath(roundedRect: rect, xRadius: DS.controlRadius, yRadius: DS.controlRadius)
         NSColor(white: 0.07, alpha: 0.86).setFill(); pill.fill()
         NSColor.white.withAlphaComponent(0.14).setStroke(); pill.lineWidth = 1; pill.stroke()
-        (text as NSString).draw(at: CGPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2), withAttributes: attributes)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center; paragraph.lineBreakMode = .byTruncatingTail
+        (text as NSString).draw(in: CGRect(x: rect.minX + DS.xs, y: rect.midY - size.height / 2, width: rect.width - DS.sm, height: size.height),
+                                withAttributes: attributes.merging([.paragraphStyle: paragraph]) { _, style in style })
     }
 
     /// A round magnifier showing individual pixels, the pointer position, and the color under it.
@@ -260,7 +276,8 @@ private final class OverlayWindow: NSWindow { override var canBecomeKey: Bool { 
         grid.stroke()
         // The pixel that will become the selection corner.
         let target = NSBezierPath(rect: CGRect(x: rect.minX + half * cell, y: rect.minY + half * cell, width: cell, height: cell))
-        NSColor.white.setStroke(); target.lineWidth = 1.5; target.stroke()
+        NSColor.black.withAlphaComponent(0.7).setStroke(); target.lineWidth = 3; target.stroke()
+        NSColor.white.setStroke(); target.lineWidth = 1; target.stroke()
         NSGraphicsContext.restoreGraphicsState()
         NSColor.white.setStroke(); circle.lineWidth = 2; circle.stroke()
 
@@ -404,32 +421,25 @@ private final class OverlayWindow: NSWindow { override var canBecomeKey: Bool { 
     }
 }
 
-/// Capture as its own accent-tinted glass button, the other outcomes grouped in a second glass piece.
-/// Inside one `GlassGroup` the two pieces merge at their edges like system toolbars.
+/// A continuous glass toolbar with an accent on the default action.
 private struct AreaActionBarView: View {
     let actions: [OverlayAction]
     let labels: Bool
     let perform: (OverlayAction) -> Void
     var body: some View {
-        let others = actions.filter { $0 != .capture }
-        GlassGroup(spacing: DS.sm) {
-            HStack(spacing: DS.xs + DS.xs / 2) {
-                if actions.contains(.capture) {
-                    AreaActionCell(action: .capture, labels: labels) { perform(.capture) }
-                        .padding(DS.xs)
-                        .modifier(GlassSurface(radius: DS.Ask.hudRadius, tint: DS.accent, interactive: true))
-                }
-                if !others.isEmpty {
-                    HStack(spacing: DS.xs / 2) {
-                        ForEach(others, id: \.self) { action in
-                            AreaActionCell(action: action, labels: labels) { perform(action) }
-                        }
-                    }
-                    .padding(DS.xs)
-                    .modifier(GlassSurface(radius: DS.Ask.hudRadius, interactive: true))
+        HStack(spacing: DS.xs) {
+            ForEach(actions, id: \.self) { action in
+                AreaActionCell(action: action, labels: labels) { perform(action) }
+                if action == .capture && actions.last != .capture {
+                    Rectangle().fill(Color.white.opacity(DS.outlineOpacity))
+                        .frame(width: DS.stroke, height: DS.lg)
+                        .accessibilityHidden(true)
                 }
             }
         }
+        .padding(DS.xs)
+        .modifier(GlassSurface(radius: DS.Ask.hudRadius, interactive: true,
+                               backing: Color(nsColor: DS.Ask.hud).opacity(0.65)))
         .padding(DS.Ask.hudMargin)
         .fixedSize()
     }
@@ -444,21 +454,23 @@ private struct AreaActionCell: View {
     var body: some View {
         let primary = action == .capture
         Button(action: perform) {
-            VStack(spacing: DS.xs / 2) {
-                Icon(action.symbol, weight: primary || hovering ? .fill : .regular, size: DS.iconSize + DS.xs / 2)
+            HStack(spacing: DS.xs) {
+                Icon(action.symbol, weight: primary || hovering ? .fill : .regular, size: DS.iconSize)
                 if labels { Text(action.title).font(Font(DS.Ask.hudLabel)).lineLimit(1) }
+                if primary { Text("↵").font(DS.caption).accessibilityHidden(true) }
             }
-            .foregroundStyle(primary ? DS.onAccent : Color.primary.opacity(hovering ? 1 : 0.88))
-            .frame(width: labels ? DS.Ask.labeledCellWidth : DS.Ask.cell, height: labels ? DS.Ask.cell : DS.xxl - DS.xs)
+            .padding(.horizontal, labels || primary ? DS.sm : DS.xs)
+            .foregroundStyle(primary ? DS.onAccent : Color.white)
+            .frame(minWidth: DS.xxl - DS.xs, minHeight: DS.xxl - DS.xs)
             .background {
-                if primary && hovering {
-                    RoundedRectangle(cornerRadius: DS.Ask.hudRadius - DS.xs, style: .continuous).fill(Color.white.opacity(DS.subtleOpacity))
-                } else if hovering && !primary {
-                    RoundedRectangle(cornerRadius: DS.Ask.hudRadius - DS.xs, style: .continuous).fill(Color(nsColor: DS.Ask.hudWash))
+                if primary {
+                    RoundedRectangle(cornerRadius: DS.controlRadius, style: .continuous).fill(DS.accent.opacity(hovering ? 0.88 : 1))
+                } else if hovering {
+                    RoundedRectangle(cornerRadius: DS.controlRadius, style: .continuous).fill(Color(nsColor: DS.Ask.hudWash))
                         .transition(.opacity)
                 }
             }
-            .contentShape(RoundedRectangle(cornerRadius: DS.Ask.hudRadius - DS.xs))
+            .contentShape(RoundedRectangle(cornerRadius: DS.controlRadius))
         }
         .buttonStyle(PressableStyle())
         .accessibilityLabel(action.title).help(action.title)

@@ -6,17 +6,33 @@ import Capture
 import Hotkeys
 import Carbon
 
-@MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let settings = SettingsStore()
     let permission = ScreenPermission()
     private let hotkeys = GlobalHotkeys()
     private var hotkeysSuspended = false
     private var registeredShortcuts: [String: Shortcut] = [:]
+    private var attemptedShortcuts: [String: Shortcut]?
     /// The shortcuts currently shown in the menus, so menus are rebuilt only when they change.
     private var menuShortcuts: [String: Shortcut]?
     private var appliedAppearance: AppAppearance?
     private var appliedDockIcon: Bool?
-    private lazy var captures = CaptureController(settings: settings, permission: permission, requestPermission: { [weak self] in self?.showSettings() })
+    private lazy var captures = CaptureController(settings: settings, permission: permission,
+                                                  requestPermission: { [weak self] in self?.presentSettings(section: .privacy) },
+                                                  librarySettings: { [weak self] in self?.presentSettings(section: .library) },
+                                                  openRecordings: { [weak self] in self?.showRecordings() })
+    private lazy var webCapture = URLCaptureWindowController { [weak self] capture in
+        Task { await self?.captures.acceptWebpage(capture) }
+    }
+    private lazy var recording: RecordingController = {
+        let controller = RecordingController(permission: permission, openPrivacy: { [weak self] in self?.openPrivacy() },
+                                             assistantSettings: settings)
+        controller.shareReviewLink = { [weak self] url, title, parent in
+            self?.captures.shareRecording(url, title: title, parent: parent)
+        }
+        return controller
+    }()
+    private let updates = ReleaseNotesController()
     private var appliedKeepConversations: Bool?
     private var statusItem: NSStatusItem?
     private var welcomeWindow: NSWindow?
@@ -79,18 +95,27 @@ import Carbon
     private var captureCommands: [[(id: String, title: String, symbol: String, action: Selector)]] {
         [
             [("area", "Capture Area", "rectangle.dashed", #selector(captureArea)),
-             ("window", "Capture Window", "macwindow", #selector(captureWindow)),
              ("screen", "Capture Screen", "display", #selector(captureScreen)),
-             ("all", "Capture All Displays", "rectangle.on.rectangle", #selector(captureAll)),
-             ("scrolling", "Scrolling Capture", "arrow.up.and.down.text.horizontal", #selector(captureScrolling)),
+             ("window", "Capture Window", "macwindow", #selector(captureWindow)),
              ("previous", "Capture Previous Area", "arrow.counterclockwise", #selector(capturePrevious))],
+            [("disposable", "Capture Disposable Area", "rectangle.dashed", #selector(captureDisposable)),
+             ("scrolling", "Scrolling Capture", "arrow.up.and.down.text.horizontal", #selector(captureScrolling)),
+             ("webpage", "Capture Webpage…", "globe", #selector(captureWebpage)),
+             ("all", "Capture All Displays", "rectangle.on.rectangle", #selector(captureAll))],
+            [("record", "Record Screen…", "circle", #selector(recordScreen)),
+             ("stopRecording", "Stop Screen Recording", "stop", #selector(stopRecording))],
             [("text", "Copy Text from Area", "text.viewfinder", #selector(captureText)),
              ("code", "Scan QR or Barcode", "qrcode.viewfinder", #selector(captureCode))],
             [("last", "Open Last Capture", "pencil.tip.crop.circle", #selector(openLastCapture)),
+             ("recent", "Recent Captures", "clock", #selector(showRecent)),
              ("history", "Library", "photo.stack", #selector(showHistory)),
+             ("", "Recordings", "play", #selector(showRecordings)),
+             ("", "Review Links", "link", #selector(showReviewLinks))],
+            [
              ("", "Open Image or Project…", "folder", #selector(openImage)),
-             ("", "Open from Clipboard", "doc.on.clipboard", #selector(openClipboard)),
-             ("pin", "Pin from Clipboard", "pin", #selector(pinClipboard)),
+             ("", "Open from Clipboard", "doc.on.clipboard", #selector(openClipboard))],
+            [("pin", "Pin from Clipboard", "pin", #selector(pinClipboard)),
+             ("unlockPin", "Unlock Pin Under Pointer", "lock.open", #selector(unlockPinUnderPointer)),
              ("", "Unlock All Pins", "lock.open", #selector(unlockPins))]
         ]
     }
@@ -109,7 +134,7 @@ import Carbon
                     if shortcut.modifiers & UInt32(controlKey) != 0 { mask.insert(.control) }
                     item.keyEquivalentModifierMask = mask
                 }
-                if command.id == "area" {
+                if command.id == "all" {
                     let timed = NSMenuItem(title: "Capture Area After Delay", action: nil, keyEquivalent: "")
                     timed.image = Icons.image("timer", size: 16)
                     let submenu = NSMenu()
@@ -128,6 +153,7 @@ import Carbon
         let item = NSMenuItem()
         item.submenu = appMenu; main.addItem(item)
         add("About SuperShot", action: #selector(about), to: appMenu)
+        add("Check for Updates…", action: #selector(checkUpdates), to: appMenu)
         appMenu.addItem(.separator())
         add("Settings…", action: #selector(showSettings), key: ",", to: appMenu)
         appMenu.addItem(.separator())
@@ -151,6 +177,14 @@ import Carbon
         let windowItem = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
         windowItem.submenu = windowMenu; main.addItem(windowItem)
         windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        let helpMenu = NSMenu(title: "Help")
+        let helpItem = NSMenuItem(title: "Help", action: nil, keyEquivalent: "")
+        helpItem.submenu = helpMenu
+        main.addItem(helpItem)
+        add("Welcome Tour…", action: #selector(showWelcome), to: helpMenu)
+        add("Release Notes…", action: #selector(checkUpdates), to: helpMenu)
+        add("Send Feedback…", action: #selector(sendFeedback), to: helpMenu)
+        NSApp.helpMenu = helpMenu
         NSApp.mainMenu = main
 
         if statusItem == nil {
@@ -163,6 +197,13 @@ import Carbon
         addCaptureCommands(to: menu)
         menu.addItem(.separator())
         add("Settings…", action: #selector(showSettings), key: ",", symbol: "gearshape", to: menu)
+        let support = NSMenu(title: "Help")
+        let supportItem = NSMenuItem(title: "Help", action: nil, keyEquivalent: "")
+        supportItem.submenu = support
+        menu.addItem(supportItem)
+        add("Welcome Tour…", action: #selector(showWelcome), to: support)
+        add("Check for Updates…", action: #selector(checkUpdates), to: support)
+        add("Send Feedback…", action: #selector(sendFeedback), to: support)
         menu.addItem(.separator())
         add("Quit SuperShot", action: #selector(quit), key: "q", to: menu)
         statusItem?.menu = menu
@@ -180,19 +221,39 @@ import Carbon
                                    openSettings: { [weak self] in self?.showSettings() }, openPrivacy: { [weak self] in self?.openPrivacy() }, finish: { [weak self] in
                 self?.settings.preferences.onboardingCompleted = true
                 self?.welcomeWindow?.close()
+                self?.welcomeWindow = nil
             })
-            welcomeWindow = makeWindow(title: "SuperShot Setup", size: DS.welcomeSize, view: view)
+            let window = makeWindow(title: "SuperShot Setup", size: WelcomeView.preferredSize, view: view, resizable: true)
+            window.contentMinSize = CGSize(width: min(window.contentLayoutRect.width, 440),
+                                          height: min(window.contentLayoutRect.height, 360))
+            welcomeWindow = window
         }
         present(welcomeWindow)
     }
     @objc func showSettings() {
+        presentSettings(section: nil)
+    }
+    private func presentSettings(section: SettingsView.Section?) {
         if settingsWindow == nil {
-            let view = SettingsContainer(store: settings, permission: permission, openPrivacy: { [weak self] in self?.openPrivacy() })
-            settingsWindow = makeWindow(title: "SuperShot Settings", size: DS.settingsSize, view: view, resizable: true)
+            settingsWindow = makeWindow(title: "SuperShot Settings", size: DS.settingsSize,
+                                        view: settingsContainer(section: section ?? .general), resizable: true)
             settingsWindow?.isOpaque = false
             settingsWindow?.backgroundColor = .clear
+        } else if let section, let window = settingsWindow {
+            let host = NSHostingView(rootView: settingsContainer(section: section))
+            host.sizingOptions = []
+            host.frame = window.contentView?.bounds ?? .zero
+            window.contentView = host
         }
         present(settingsWindow)
+    }
+    private func settingsContainer(section: SettingsView.Section) -> SettingsContainer {
+        SettingsContainer(store: settings, permission: permission, section: section,
+                          openLibrary: { [weak self] in self?.captures.showHistory() },
+                          openRecordingSetup: { [weak self] in self?.recordScreen() },
+                          openWebpageCapture: { [weak self] in self?.captureWebpage() },
+                          openReviewLinks: { [weak self] in self?.showReviewLinks() },
+                          openPrivacy: { [weak self] in self?.openPrivacy() })
     }
     private func startCapture(_ id: String) {
         switch id {
@@ -245,7 +306,8 @@ import Carbon
         }
         let resume = hotkeysSuspended
         hotkeysSuspended = false
-        guard resume || registeredShortcuts != settings.preferences.shortcuts else { return }
+        let requested = settings.preferences.shortcuts
+        guard resume || attemptedShortcuts != requested else { return }
         hotkeys.unregisterAll()
         var actions: [(String, () -> Void)] = [
             ("screen", { [weak self] in self?.captureScreen() }),
@@ -256,46 +318,73 @@ import Carbon
             ("scrolling", { [weak self] in self?.captureScrolling() }),
             ("text", { [weak self] in self?.captureText() }),
             ("code", { [weak self] in self?.captureCode() }),
-            ("timed", { [weak self] in self?.captures.captureTimed(seconds:3) }),
+            ("timed", { [weak self] in self?.captureTimed(seconds: 3) }),
             ("last", { [weak self] in self?.openLastCapture() }),
             ("history", { [weak self] in self?.showHistory() }),
             ("pin", { [weak self] in self?.captures.pinClipboard() }),
-            ("icons", { [weak self] in self?.settings.preferences.hideDesktopIcons.toggle() })
+            ("icons", { [weak self] in self?.settings.preferences.hideDesktopIcons.toggle() }),
+            ("unlockPin", { [weak self] in self?.captures.pins.unlockUnderPointer() }),
+            ("disposable", { [weak self] in self?.captureDisposable() }),
+            ("webpage", { [weak self] in self?.captureWebpage() }),
+            ("recent", { [weak self] in self?.showRecent() })
         ]
-        for preset in settings.preferences.backdropPresets {actions.append(("preset."+preset.id.uuidString,{ [weak self] in self?.captures.applyPreset(preset.backdrop) }))}
-        do {
-            for (index, pair) in actions.enumerated() {
-                if let shortcut = settings.preferences.shortcuts[pair.0] {
-                    try hotkeys.register(id: UInt32(index + 1), shortcut: shortcut, action: pair.1)
-                }
-            }
-            registeredShortcuts = settings.preferences.shortcuts
-        } catch {
-            hotkeys.unregisterAll()
-            settings.shortcutError = error.localizedDescription
-            // Restore the last working registrations, keeping the rejected assignment out of storage.
-            let previous = registeredShortcuts
-            for (index, pair) in actions.enumerated() {
-                if let shortcut = previous[pair.0] {
-                    try? hotkeys.register(id: UInt32(index + 1), shortcut: shortcut, action: pair.1)
-                }
-            }
-            if !previous.isEmpty { settings.preferences.shortcuts = previous }
+        actions += [
+            ("record", { [weak self] in self?.recordScreen() }),
+            ("stopRecording", { [weak self] in self?.stopRecording() })
+        ]
+        for preset in settings.preferences.backdropPresets {
+            let id = preset.id
+            actions.append(("preset." + id.uuidString, { [weak self] in
+                guard let self, let current = settings.preferences.backdropPresets.first(where: { $0.id == id }) else { return }
+                captures.applyPreset(current.backdrop)
+            }))
         }
+        let result = HotkeyInstallation.register(actions: actions.map(\.0), requested: requested, previous: registeredShortcuts) { index, shortcut in
+            try hotkeys.register(id: UInt32(index + 1), shortcut: shortcut, action: actions[index].1)
+        }
+        attemptedShortcuts = result.preferences
+        registeredShortcuts = result.installed
+        if result.failures.isEmpty {
+            settings.shortcutError = nil
+        } else {
+            let titles = result.failures.map { failure in
+                Shortcut.actions.first(where: { $0.id == failure.action })?.title
+                    ?? settings.preferences.backdropPresets.first(where: { "preset." + $0.id.uuidString == failure.action })?.name
+                    ?? failure.action
+            }
+            settings.shortcutError = "Shortcut unavailable for \(titles.joined(separator: ", ")). Choose a different key combination."
+        }
+        if result.preferences != requested { settings.preferences.shortcuts = result.preferences }
     }
     @objc private func captureScreen() { hideMainWindows(); captures.capture(.screen) }
     @objc private func captureArea() { hideMainWindows(); captures.capture(.area) }
+    @objc private func captureDisposable() { hideMainWindows(); captures.capture(.disposable) }
+    @objc private func captureWebpage() { webCapture.present() }
+    @objc private func recordScreen() { recording.present() }
+    @objc private func stopRecording() { recording.stop() }
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        item.action != #selector(stopRecording) || recording.canStopRecording
+    }
+    @objc private func showRecordings() { recording.presentLibrary() }
+    @objc private func showReviewLinks() { captures.showReviewLinks() }
     @objc private func captureWindow() { hideMainWindows(); captures.capture(.window) }
     @objc private func capturePrevious() { captures.capture(.previous) }
     @objc private func captureAll() { hideMainWindows(); captures.captureAllDisplays() }
-    @objc private func timedCapture(_ sender:NSMenuItem) { hideMainWindows(); captures.captureTimed(seconds:sender.tag) }
+    @objc private func timedCapture(_ sender:NSMenuItem) { captureTimed(seconds: sender.tag) }
+    private func captureTimed(seconds: Int) { hideMainWindows(); captures.captureTimed(seconds: seconds) }
     @objc private func captureScrolling() { hideMainWindows(); captures.capture(.scrolling) }
     @objc private func captureText() { hideMainWindows(); captures.capture(.text) }
     @objc private func captureCode() { hideMainWindows(); captures.capture(.code) }
     @objc private func showHistory() { captures.showHistory() }
+    @objc private func showRecent() { captures.showRecent() }
     @objc private func openImage() { captures.openImage() }
     @objc private func openClipboard() { captures.openClipboard() }
     @objc private func unlockPins() { captures.pins.unlockAll() }
+    @objc private func unlockPinUnderPointer() { captures.pins.unlockUnderPointer() }
+    @objc private func checkUpdates() { updates.present() }
+    @objc private func sendFeedback() {
+        if let url = URL(string: "https://github.com/desenyon/SuperShot/issues/new") { NSWorkspace.shared.open(url) }
+    }
     @objc private func pinClipboard() { captures.pinClipboard() }
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
         filenames.forEach { captures.openFile(URL(fileURLWithPath: $0)) }
@@ -306,26 +395,35 @@ import Carbon
         for url in urls {if url.isFileURL {captures.openFile(url)} else {handleURL(url)}}
     }
     func handleURL(_ url: URL) {
-        guard url.scheme?.lowercased() == "supershot",let components=URLComponents(url:url,resolvingAgainstBaseURL:false) else{return}
-        let query=Dictionary(components.queryItems?.map{($0.name,$0.value ?? "")} ?? [],uniquingKeysWith:{_,new in new})
-        if url.host == "history" {captures.showHistory();return}
-        guard url.host == "capture" else{return}
-        hideMainWindows()
-        if let delay=Int(query["delay"] ?? ""),[3,5,10].contains(delay) {captures.captureTimed(seconds:delay);return}
-        switch query["mode"] ?? "area" {
-        case "screen":captures.capture(.screen)
-        case "window":captures.capture(.window)
-        case "previous":captures.capture(.previous)
-        case "text":captures.capture(.text)
-        case "code":captures.capture(.code)
-        case "scrolling":captures.capture(.scrolling)
-        case "all":captures.captureAllDisplays()
-        case "area":captures.capture(.area)
-        default:break
+        if let command = CaptureURLCommand(url) { performCaptureCommand(command) }
+    }
+
+    func performCaptureCommand(_ command: CaptureURLCommand) {
+        switch command {
+        case .history: showHistory()
+        case .recent: showRecent()
+        case .record: recordScreen()
+        case .recordings: showRecordings()
+        case .timed(let seconds): captureTimed(seconds: seconds)
+        case .capture(.screen): captureScreen()
+        case .capture(.window): captureWindow()
+        case .capture(.previous): capturePrevious()
+        case .capture(.text): captureText()
+        case .capture(.code): captureCode()
+        case .capture(.scrolling): captureScrolling()
+        case .capture(.all): captureAll()
+        case .capture(.area): captureArea()
+        case .capture(.disposable): captureDisposable()
+        case .capture(.webpage): captureWebpage()
         }
     }
     func applicationShouldTerminate(_ sender:NSApplication)->NSApplication.TerminateReply {
-        Task {await captures.flushEdits();sender.reply(toApplicationShouldTerminate:true)}
+        Task {
+            webCapture.cancel()
+            await recording.finishBeforeTermination()
+            await captures.flushEdits()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
         return .terminateLater
     }
     func applicationWillTerminate(_ notification: Notification) { hotkeys.unregisterAll() }
@@ -335,9 +433,16 @@ import Carbon
 private struct SettingsContainer: View {
     let store: SettingsStore
     let permission: ScreenPermission
+    let section: SettingsView.Section
+    let openLibrary: () -> Void
+    let openRecordingSetup: () -> Void
+    let openWebpageCapture: () -> Void
+    let openReviewLinks: () -> Void
     let openPrivacy: () -> Void
     var body: some View {
-        SettingsView(store: store, hasScreenAccess: permission.state == .authorized, openPrivacy: openPrivacy)
+        SettingsView(store: store, hasScreenAccess: permission.state == .authorized, initialSection: section,
+                     openLibrary: openLibrary, openRecordingSetup: openRecordingSetup,
+                     openWebpageCapture: openWebpageCapture, openReviewLinks: openReviewLinks, openPrivacy: openPrivacy)
             .task {
                 while !Task.isCancelled {
                     permission.refresh()

@@ -28,6 +28,7 @@ let package = Package(
         .testTarget(name: "EditorTests", dependencies: ["Editor"]),
         .testTarget(name: "RecognitionTests", dependencies: ["Recognition"]),
         .testTarget(name: "LibraryTests", dependencies: ["Library", "Document", "Export"]),
-        .testTarget(name: "AITests", dependencies: ["AI", "Recognition"])
+        .testTarget(name: "AITests", dependencies: ["AI", "Recognition"]),
+        .testTarget(name: "SuperShotAppTests", dependencies: ["SuperShotApp", "Capture"])
     ]
 )
