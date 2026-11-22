@@ -25,7 +25,9 @@ public struct EditorView: View {
             EditorCanvas(model: model).ignoresSafeArea()
             if let point = model.textViewPoint, model.textPoint != nil { inlineTextField(at: point) }
             // One container lets the system sample the canvas once for all floating surfaces.
-            GlassEffectContainer(spacing: 0) { chrome }.ignoresSafeArea()
+            GeometryReader { window in
+                GlassEffectContainer(spacing: 0) { chrome(panels: model.visiblePanels(width: window.size.width)) }
+            }.ignoresSafeArea()
         }
         .animation(DS.Motion.panel(reduceMotion), value: model.inspector)
         .animation(DS.Motion.panel(reduceMotion), value: model.showBackdrop)
@@ -59,42 +61,46 @@ public struct EditorView: View {
 
     // MARK: Chrome
 
-    private var chrome: some View {
+    private func chrome(panels: EditorPanels) -> some View {
         VStack(spacing: DS.sm) {
             EditorPaletteLayout(height: DS.capsuleHeight) {
                 if configuration.tools.isEmpty { Color.clear.frame(width: 0, height: 0) }
                 else { ToolPalette(model: model, configuration: configuration) }
-                panelSwitcher
+                EditorPanelSwitcher(model: model, visible: !panels.inspector.isEmpty)
             }
             ToolOptionsBar(model: model)
             HStack(alignment: .top, spacing: 0) {
-                if model.showBackdrop {
+                if panels.backdrop {
                     BackdropPanel(model: model).transition(DS.Motion.reveal(from: .leading, reduceMotion: reduceMotion))
                 }
                 Spacer(minLength: 0)
-                if !model.inspector.isEmpty {
+                if !panels.inspector.isEmpty {
                     SidePanel(model: model).transition(DS.Motion.reveal(from: .trailing, reduceMotion: reduceMotion))
                 }
             }
-            .frame(maxHeight: .infinity)
-            ZStack(alignment: .bottom) {
-                HStack(alignment: .bottom) { documentBar; Spacer(); exportBar }
-                VStack(spacing: DS.sm) {
-                    if model.busy || !model.status.isEmpty { toast.transition(DS.Motion.rise(reduceMotion: reduceMotion)) }
-                    zoomBar
+            .frame(maxHeight: .infinity, alignment: .top)
+            HStack(spacing: DS.md) {
+                documentBar(backdropVisible: panels.backdrop)
+                Spacer(minLength: DS.sm)
+                zoomBar.fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: DS.sm)
+                exportBar.fixedSize(horizontal: true, vertical: false)
+            }
+            .padding(DS.capsulePadding).frame(height: DS.capsuleHeight)
+            .modifier(GlassSurface(radius: DS.md))
+            .overlay(alignment: .top) {
+                if model.busy || !model.status.isEmpty {
+                    toast.alignmentGuide(.top) { $0.height + DS.sm }
+                        .transition(DS.Motion.rise(reduceMotion: reduceMotion))
                 }
             }
         }
         .padding(DS.edge)
     }
 
-    private var panelSwitcher: some View {
-        EditorPanelSwitcher(model: model)
-    }
-
-    private var documentBar: some View {
+    private func documentBar(backdropVisible: Bool) -> some View {
         HStack(spacing: 2) {
-            IconButton("rectangle.inset.filled", label: "Backdrop", selected: model.showBackdrop) { model.showBackdrop.toggle() }
+            IconButton("rectangle.inset.filled", label: "Backdrop", selected: backdropVisible) { model.showBackdrop = !backdropVisible }
             divider
             IconButton("arrow.uturn.backward", label: "Undo · ⌘Z") { model.undo() }.disabled(!model.canUndo)
             IconButton("arrow.uturn.forward", label: "Redo · ⇧⌘Z") { model.redo() }.disabled(!model.canRedo)
@@ -102,7 +108,6 @@ public struct EditorView: View {
             Text(model.document.source).font(DS.caption).lineLimit(1).frame(maxWidth: 140, alignment: .leading).padding(.leading, DS.xs)
             DimensionTag(model: model).padding(.trailing, DS.xs)
         }
-        .padding(DS.capsulePadding).frame(height: DS.capsuleHeight).modifier(GlassSurface(radius: DS.pill))
     }
     private var zoomBar: some View {
         HStack(spacing: 2) {
@@ -122,7 +127,6 @@ public struct EditorView: View {
             .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize().help("Zoom")
             IconButton("plus", label: "Zoom in · ⌘+") { model.zoom(by: 1.25) }
         }
-        .padding(DS.capsulePadding).frame(height: DS.capsuleHeight).modifier(GlassSurface(radius: DS.pill))
     }
 
     private var exportBar: some View {
@@ -132,11 +136,14 @@ public struct EditorView: View {
                 Text("Drag").font(DS.caption)
             }
             .foregroundStyle(.primary).padding(.horizontal, DS.xs).frame(height: DS.toolButtonSize)
-            .contentShape(Capsule())
+            .contentShape(Rectangle())
             .onDrag { dragProvider() }
             .help("Drag the finished image into another app").accessibilityLabel("Drag image")
             IconButton("pin", label: "Pin to screen") { model.export(pin: true) }.disabled(model.pinAction == nil || model.busy)
             ShareButton(model: model).frame(width: DS.toolButtonSize, height: DS.toolButtonSize)
+            if model.shareLinkAction != nil {
+                IconButton("link", label: "Create a share link") { model.shareLink() }.disabled(model.busy)
+            }
             IconButton("square.and.arrow.down.on.square", label: "Save editable project · ⇧⌘S") { model.saveProject() }
             divider
             Button { model.export(copy: true) } label: { ExportLabel(copy: true, feedback: model.exportFeedback) }
@@ -156,10 +163,9 @@ public struct EditorView: View {
                     ExportOptions(model: model, dismiss: { choosingFormat = false })
                 }
             }
-            .foregroundStyle(DS.onAccent).background(DS.accent, in: Capsule())
+            .foregroundStyle(DS.onAccent).background(DS.accent, in: RoundedRectangle(cornerRadius: DS.controlRadius))
             .opacity(model.busy ? 0.5 : 1).disabled(model.busy)
         }
-        .padding(DS.capsulePadding).frame(height: DS.capsuleHeight).modifier(GlassSurface(radius: DS.pill))
     }
 
     private var toast: some View {
@@ -169,7 +175,7 @@ public struct EditorView: View {
             else { Icon("check-circle").foregroundStyle(.primary) }
             Text(model.status.isEmpty ? "Working…" : model.status).font(DS.caption).lineLimit(1)
         }
-        .padding(.horizontal, DS.md).frame(height: 30).modifier(GlassSurface(radius: DS.pill))
+        .padding(.horizontal, DS.md).frame(height: DS.toolButtonSize).modifier(GlassSurface(radius: DS.smallRadius))
     }
 
     private var divider: some View {
@@ -258,23 +264,27 @@ package struct ExportOptions: View {
                     Hairline()
                     SectionLabel("Resolution")
                     ForEach([1.0, 2.0, 4.0], id: \.self) { scale in
-                        option(scale == 1 ? "Original size" : "\(Int(scale))× resample", selected: model.outputMultiplier == scale) {
+                        let pixels = model.exportDimensions(at: scale)
+                        option(scale == 1 ? "Original size" : "\(Int(scale))× resample",
+                               detail: "\(Int(pixels.width)) × \(Int(pixels.height)) px", selected: model.outputMultiplier == scale) {
                             model.outputMultiplier = scale
                         }
                     }
                 }.transition(DS.Motion.pop(reduceMotion: reduceMotion))
             }
         }
-        .padding(DS.panelPadding).frame(width: DS.pinPopoverWidth)
+        .padding(DS.panelPadding).frame(width: DS.backdropPanelWidth)
         .onAppear { withAnimation(DS.Motion.panel(reduceMotion)) { shown = true } }
     }
 
-    private func option(_ title: String, selected: Bool, apply: @escaping () -> Void) -> some View {
+    private func option(_ title: String, detail: String? = nil, selected: Bool, apply: @escaping () -> Void) -> some View {
         Button { apply(); dismiss() } label: {
             HStack {
                 Text(title).font(DS.body)
-                Spacer()
-                if selected { Icon("check", weight: .bold, size: DS.icon).foregroundStyle(DS.accent) }
+                Spacer(minLength: DS.sm)
+                if let detail { Text(detail).font(DS.mono).foregroundStyle(.secondary).fixedSize() }
+                Icon("check", weight: .bold, size: DS.icon).foregroundStyle(DS.accent)
+                    .opacity(selected ? 1 : 0).accessibilityHidden(true)
             }.padding(.vertical, DS.xs).contentShape(Rectangle())
         }.buttonStyle(PressableStyle()).accessibilityAddTraits(selected ? .isSelected : [])
     }
@@ -331,10 +341,11 @@ struct ToolPalette: View {
             buttons
             ScrollView(.horizontal) { buttons }.scrollIndicators(.automatic)
         }
-        .padding(DS.capsulePadding).frame(height: DS.capsuleHeight).modifier(GlassSurface(radius: DS.pill))
+        .padding(DS.capsulePadding).frame(height: DS.capsuleHeight).modifier(GlassSurface(radius: DS.md))
     }
     private var separator: some View {
-        Rectangle().fill(DS.hairline(scheme)).frame(width: 1, height: 18).padding(.horizontal, DS.xs)
+        Rectangle().fill(.secondary.opacity(DS.mutedOpacity)).frame(width: DS.stroke, height: DS.iconSize)
+            .padding(.horizontal, DS.xs).accessibilityHidden(true)
     }
     private func toolButton(_ id: String) -> some View {
         let info = Self.info(id)
@@ -373,7 +384,6 @@ struct ToolPalette: View {
         window.minSize = DS.editorMinimum
         // An empty unified toolbar gives a taller title bar, which centers the window buttons on the tool palette.
         let toolbar = NSToolbar(identifier: "editor")
-        toolbar.showsBaselineSeparator = false
         window.toolbar = toolbar
         window.toolbarStyle = .unified
         let host = NSHostingView(rootView: EditorWindowContent(model: model, chrome: chrome))

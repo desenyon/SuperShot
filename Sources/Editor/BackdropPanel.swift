@@ -11,6 +11,7 @@ struct BackdropPanel: View {
     @Namespace private var selection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @LocalState private var showingPresets = false
+    @LocalState private var watermarkText = ""
 
     private var backdrop: Backdrop { model.current.backdrop }
 
@@ -19,59 +20,68 @@ struct BackdropPanel: View {
             HStack {
                 Text("Backdrop").font(DS.title)
                 Spacer()
+                Button { showingPresets.toggle() } label: {
+                    Label { Text("Presets") } icon: { Icon("stack-simple", size: DS.icon) }
+                }
+                .buttonStyle(QuietButtonStyle())
+                .popover(isPresented: $showingPresets) { BackdropPresets(model: model) }
                 IconButton("xmark", label: "Hide backdrop panel", size: DS.xl) { model.showBackdrop = false }
             }
             .padding(.horizontal, DS.panelPadding).padding(.top, DS.md).padding(.bottom, DS.sm)
-            ScrollView {
-                VStack(alignment: .leading, spacing: DS.md) {
-                    SegmentedChoice([(Backdrop.Fill.none, "None", nil), (.solid, "Color", nil), (.gradient, "Gradient", nil), (.wallpaper, "Image", nil)],
-                                    selection: backdrop.fill) { fill in
-                        if fill == .wallpaper && backdrop.wallpaper == nil { model.selectWallpaper(desktop: true) }
-                        if model.document.backdrop.fill != fill { model.commit { $0.backdrop.fill = fill } }
-                    }
-                    switch backdrop.fill {
-                    case .none: emptyState
-                    case .solid: solidPicker
-                    case .gradient: gradientPicker
-                    case .wallpaper: wallpaperPicker
-                    }
-                    if backdrop.fill != .none {
-                        frameControls
-                        positionControls
-                    }
-                }
-                .padding(.horizontal, DS.panelPadding).padding(.bottom, DS.panelPadding)
+            SegmentedChoice([(BackdropSection.style, "Style", nil), (.layout, "Layout", nil), (.watermark, "Watermark", nil)],
+                            selection: model.backdropSection) { model.backdropSection = $0 }
+                .padding(.horizontal, DS.panelPadding).padding(.bottom, DS.md)
+            ViewThatFits(in: .vertical) {
+                sectionContents.fixedSize(horizontal: false, vertical: true)
+                ScrollView { sectionContents }.scrollIndicators(.automatic)
             }
-            .scrollIndicators(.automatic)
-            Hairline()
-            Button { showingPresets.toggle() } label: {
-                HStack(spacing: DS.sm) {
-                    Icon("stack-simple", size: DS.icon)
-                    Text("Presets").font(DS.emphasis)
-                    Spacer()
-                    Icon("caret-up", size: DS.md)
-                }.contentShape(Rectangle())
-            }
-            .buttonStyle(.plain).padding(.horizontal, DS.panelPadding).padding(.vertical, DS.md)
-            .popover(isPresented: $showingPresets) {
-                BackdropPresets(model: model)
-            }
+            .animation(DS.Motion.panel(reduceMotion), value: model.backdropSection)
         }
         .frame(width: DS.backdropPanelWidth)
-        .modifier(GlassSurface())
+        .modifier(GlassSurface(radius: DS.lg))
+    }
+
+    private var sectionContents: some View {
+        VStack(alignment: .leading, spacing: DS.md) {
+            switch model.backdropSection {
+            case .style: styleControls
+            case .layout:
+                if backdrop.fill != .none {
+                    frameControls
+                    positionControls
+                } else {
+                    Button("Choose a backdrop") { model.backdropSection = .style }.buttonStyle(QuietButtonStyle())
+                }
+                trimControls
+            case .watermark: watermarkControls
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, DS.panelPadding).padding(.bottom, DS.panelPadding)
     }
 
     // MARK: Fill
 
+    private var styleControls: some View {
+        Group {
+            SegmentedChoice([(Backdrop.Fill.none, "None", nil), (.solid, "Color", nil), (.gradient, "Gradient", nil), (.wallpaper, "Image", nil)],
+                            selection: backdrop.fill) { fill in
+                if fill == .wallpaper && backdrop.wallpaper == nil { model.selectWallpaper(desktop: true) }
+                if model.document.backdrop.fill != fill { model.commit { $0.backdrop.fill = fill } }
+            }
+            switch backdrop.fill {
+            case .none: emptyState
+            case .solid: solidPicker
+            case .gradient: gradientPicker
+            case .wallpaper: wallpaperPicker
+            }
+        }
+    }
+
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: DS.md) {
-            Text("The image exports as captured, with nothing around it.")
-                .font(DS.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            SectionLabel("Quick start")
+            SectionLabel("Gradients")
             gradientGrid(Array(DS.gradients.prefix(4)))
-            Hairline()
-            Button("Trim transparent edges") { model.trim() }.buttonStyle(QuietButtonStyle()).disabled(model.busy)
-            Button("Trim window shadow") { model.trim(shadow: true) }.buttonStyle(QuietButtonStyle()).disabled(model.busy)
         }
     }
 
@@ -170,7 +180,7 @@ struct BackdropPanel: View {
 
     private var frameControls: some View {
         VStack(alignment: .leading, spacing: DS.md) {
-            Hairline()
+            SectionLabel("Frame")
             slider("Padding", backdrop.padding, 0...320) { $0.padding = $1 }
             slider("Inset", backdrop.inset ?? 0, 0...120) { $0.inset = $1 }
             slider("Corners", backdrop.radius, 0...80) { $0.radius = $1 }
@@ -184,15 +194,9 @@ struct BackdropPanel: View {
             HStack(alignment: .top, spacing: DS.lg) {
                 VStack(alignment: .leading, spacing: DS.sm) {
                     SectionLabel("Align")
-                    VStack(spacing: 0) {
-                        ForEach(0..<3, id: \.self) { row in
-                            HStack(spacing: 0) {
-                                ForEach(0..<3, id: \.self) { column in alignmentCell(row: row, column: column) }
-                            }
-                        }
+                    anchorPicker(CGPoint(x: backdrop.alignmentX, y: backdrop.alignmentY), selectionID: "alignment") { anchor in
+                        model.commit { $0.backdrop.alignmentX = anchor.x; $0.backdrop.alignmentY = anchor.y }
                     }
-                    .padding(DS.insetStroke)
-                    .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.buttonRadius))
                 }
                 VStack(alignment: .leading, spacing: DS.sm) {
                     SectionLabel("Ratio")
@@ -204,17 +208,76 @@ struct BackdropPanel: View {
             .animation(DS.Motion.snappy(reduceMotion), value: backdrop.ratio)
             .animation(DS.Motion.snappy(reduceMotion), value: backdrop.alignmentX)
             .animation(DS.Motion.snappy(reduceMotion), value: backdrop.alignmentY)
+        }
+    }
+    private var trimControls: some View {
+        HStack(spacing: DS.sm) {
+            Button("Auto-balance") { model.trim(balance: true) }.buttonStyle(QuietButtonStyle()).disabled(model.busy)
+                .help("Even out blank margins around the content")
+            Menu {
+                Button("Trim transparent edges") { model.trim() }
+                Button("Trim window shadow") { model.trim(shadow: true) }
+                Button("Restore original bounds") { model.commit { $0.crop = nil } }.disabled(model.document.crop == nil)
+            } label: { Text("Trim") }
+                .menuStyle(.borderlessButton).fixedSize().disabled(model.busy)
+        }
+    }
+
+    private var watermarkControls: some View {
+        VStack(alignment: .leading, spacing: DS.md) {
             HStack(spacing: DS.sm) {
-                Button("Auto-balance") { model.trim(balance: true) }.buttonStyle(QuietButtonStyle()).disabled(model.busy)
-                    .help("Even out blank margins around the content")
-                Menu {
-                    Button("Trim transparent edges") { model.trim() }
-                    Button("Trim window shadow") { model.trim(shadow: true) }
-                    Button("Restore original bounds") { model.commit { $0.crop = nil } }
-                } label: { Text("Trim") }
-                    .menuStyle(.borderlessButton).fixedSize().disabled(model.busy)
+                TextField("Watermark text", text: $watermarkText)
+                    .textFieldStyle(.plain).font(DS.body)
+                    .padding(.horizontal, DS.sm).frame(height: DS.toolButtonSize)
+                    .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.controlRadius))
+                    .onSubmit(applyWatermark)
+                    .onChange(of: watermarkText) { _, text in
+                        if text.count > 120 { watermarkText = String(text.prefix(120)) }
+                    }
+                Button("Apply", action: applyWatermark).buttonStyle(QuietButtonStyle())
+                    .disabled(watermarkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            if let watermark = backdrop.watermark {
+                HStack(alignment: .top, spacing: DS.lg) {
+                    VStack(alignment: .leading, spacing: DS.sm) {
+                        SectionLabel("Position")
+                        anchorPicker(watermark.anchor, selectionID: "watermark") { anchor in
+                            model.commit { $0.backdrop.watermark?.anchor = anchor }
+                        }
+                    }
+                    Button("Remove") { model.commit { $0.backdrop.watermark = nil } }
+                        .buttonStyle(QuietButtonStyle())
+                        .accessibilityLabel("Remove watermark")
+                }
+                slider("Opacity", watermark.opacity, 0.1...1, percent: true) { $0.watermark?.opacity = $1 }
             }
         }
+        .onChange(of: backdrop.watermark?.text, initial: true) { _, text in watermarkText = text ?? "" }
+    }
+
+    private func applyWatermark() {
+        let text = String(watermarkText.prefix(120)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        model.commit {
+            var watermark = $0.backdrop.watermark ?? ImageWatermark(text: text)
+            watermark.text = text
+            $0.backdrop.watermark = watermark
+        }
+    }
+
+    private func anchorPicker(_ current: CGPoint, selectionID: String, choose: @escaping (CGPoint) -> Void) -> some View {
+        VStack(spacing: 0) {
+            ForEach(0..<3, id: \.self) { row in
+                HStack(spacing: 0) {
+                    ForEach(0..<3, id: \.self) { column in
+                        let anchor = CGPoint(x: Double(column) / 2, y: Double(row) / 2)
+                        alignmentCell(anchor, selected: current == anchor, selectionID: selectionID) { choose(anchor) }
+                    }
+                }
+            }
+        }
+        .padding(DS.insetStroke)
+        .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.buttonRadius))
     }
     private static let ratios: [(title: String, value: Double)] = [
         ("Auto", 0), ("16:9", 16.0 / 9.0), ("4:3", 4.0 / 3.0), ("1:1", 1), ("3:4", 0.75), ("9:16", 9.0 / 16.0)
@@ -233,22 +296,22 @@ struct BackdropPanel: View {
         .buttonStyle(.plain).accessibilityLabel("Aspect ratio \(title)")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
-    private func alignmentCell(row: Int, column: Int) -> some View {
-        let x = Double(column) / 2, y = Double(row) / 2
-        let selected = backdrop.alignmentX == x && backdrop.alignmentY == y
-        return Button { model.commit { $0.backdrop.alignmentX = x; $0.backdrop.alignmentY = y } } label: {
+    private func alignmentCell(_ anchor: CGPoint, selected: Bool, selectionID: String, choose: @escaping () -> Void) -> some View {
+        let horizontal = anchor.x == 0 ? "left" : anchor.x == 1 ? "right" : "center"
+        let vertical = anchor.y == 0 ? "Top" : anchor.y == 1 ? "Bottom" : "Middle"
+        return Button(action: choose) {
             Circle().fill(selected ? DS.onAccent : Color.secondary)
                 .frame(width: DS.xs, height: DS.xs)
                 .frame(width: DS.alignmentTarget, height: DS.alignmentTarget)
                 .background {
                     if selected {
                         RoundedRectangle(cornerRadius: DS.controlRadius).fill(DS.accent)
-                            .slidingSelection("alignment", in: selection, reduceMotion: reduceMotion)
+                            .slidingSelection(selectionID, in: selection, reduceMotion: reduceMotion)
                     }
                 }
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain).accessibilityLabel("Align row \(row + 1), column \(column + 1)")
+        .buttonStyle(.plain).accessibilityLabel("\(vertical) \(horizontal)")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -296,8 +359,12 @@ package struct BackdropPresets: View {
             HStack {
                 Text("Saved presets").font(DS.emphasis)
                 Spacer()
-                Button { naming.toggle() } label: { Icon(naming ? "xmark" : "plus", weight: .bold, size: DS.icon) }
-                    .buttonStyle(.plain).foregroundStyle(.secondary).help("Save the current backdrop as a preset")
+                if let importPreset = model.importPresetAction {
+                    IconButton("tray-arrow-down", label: "Import preset", size: DS.xl, action: importPreset)
+                }
+                IconButton(naming ? "xmark" : "plus", label: naming ? "Cancel new preset" : "Save current look as a preset", size: DS.xl) {
+                    naming.toggle()
+                }.disabled(model.savePresetAction == nil)
             }
             if naming {
                 HStack(spacing: DS.sm) {
@@ -310,24 +377,52 @@ package struct BackdropPresets: View {
                 }
             }
             if model.savedPresets.isEmpty && !naming {
-                Text("Save a look you like and reuse it. Presets can have their own shortcut in Settings.")
-                    .font(DS.caption).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+                Text("No saved presets").font(DS.caption).foregroundStyle(.secondary)
             }
             ForEach(model.savedPresets) { preset in
-                Button { model.commit { $0.backdrop = preset.backdrop } } label: {
-                    HStack(spacing: DS.sm) {
-                        BackdropThumbnail(document: model.document, backdrop: preset.backdrop)
-                        Text(preset.name).font(DS.body).lineLimit(1)
-                        Spacer()
-                    }.contentShape(Rectangle())
-                }.buttonStyle(PressableStyle()).hoverLift()
+                presetRow(preset)
             }
             HStack(spacing: DS.sm) {
-                Button("Use for new captures") { model.saveBackdropAction?(model.document.backdrop); model.status = "Backdrop saved for new captures" }
-                    .buttonStyle(QuietButtonStyle()).disabled(model.saveBackdropAction == nil)
+                Button(model.defaultBackdrop == model.document.backdrop ? "Used for new captures" : "Use for new captures") {
+                    model.saveBackdropAction?(model.document.backdrop)
+                    model.defaultBackdrop = model.document.backdrop
+                    model.status = "Backdrop saved for new captures"
+                }
+                .buttonStyle(QuietButtonStyle())
+                .disabled(model.saveBackdropAction == nil || model.defaultBackdrop == model.document.backdrop)
                 Button("Reset") { model.commit { $0.backdrop = Backdrop() } }.buttonStyle(QuietButtonStyle())
             }
         }
+    }
+
+    private func presetRow(_ preset: BackdropPreset) -> some View {
+        let active = model.savedPresets.first { $0.backdrop == model.document.backdrop }?.id == preset.id
+        let isDefault = model.savedPresets.first { $0.backdrop == model.defaultBackdrop }?.id == preset.id
+        return HStack(spacing: DS.xs) {
+            Button { model.commit { $0.backdrop = preset.backdrop } } label: {
+                HStack(spacing: DS.sm) {
+                    BackdropThumbnail(document: model.document, backdrop: preset.backdrop)
+                    VStack(alignment: .leading, spacing: DS.insetStroke) {
+                        Text(preset.name).font(active ? DS.emphasis : DS.body).lineLimit(1)
+                        if isDefault { Text("Default").font(DS.caption).foregroundStyle(.secondary) }
+                    }
+                    Spacer(minLength: 0)
+                    if active { Icon("check", weight: .bold, size: DS.icon).foregroundStyle(DS.actionInk(scheme)) }
+                }.contentShape(Rectangle())
+            }.buttonStyle(PressableStyle()).accessibilityAddTraits(active ? .isSelected : [])
+            if model.updatePresetAction != nil || model.exportPresetAction != nil {
+                Menu {
+                    if let update = model.updatePresetAction {
+                        Button("Update with current look") { update(preset, model.document.backdrop) }.disabled(active)
+                    }
+                    if let export = model.exportPresetAction { Button("Export preset…") { export(preset) } }
+                } label: { Icon("dots-three", weight: .bold, size: DS.iconSize) }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .accessibilityLabel("Options for \(preset.name)")
+            }
+        }
+        .padding(DS.xs)
+        .background(active ? DS.hover(scheme) : .clear, in: RoundedRectangle(cornerRadius: DS.controlRadius))
     }
     private func savePreset() {
         let name = model.presetName.trimmingCharacters(in: .whitespaces)

@@ -27,7 +27,7 @@ struct ToolOptionsBar: View {
     private func bar<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         HStack(spacing: DS.sm) { content() }.id(kind?.rawValue ?? model.tool).transition(.opacity)
             .padding(.horizontal, DS.md).frame(height: DS.capsuleHeight)
-            .modifier(GlassSurface(radius: DS.pill))
+            .modifier(GlassSurface(radius: DS.md))
             .transition(DS.Motion.reveal(from: .top, reduceMotion: reduceMotion))
     }
 

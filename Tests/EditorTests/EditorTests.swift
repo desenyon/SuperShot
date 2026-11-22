@@ -8,6 +8,43 @@ import CoreGraphics
 @testable import Editor
 
 struct EditorTests {
+    @Test @MainActor func narrowEditorFitsImageBesideOnlyTheActiveInspector() async {
+        let model = EditorModel(document: CaptureDocument(original: Data(), width: 1400, height: 900))
+        model.inspector = "layers"
+        let canvas = CanvasView(model: model)
+        canvas.frame = CGRect(x: 0, y: 0, width: 980, height: 620)
+        canvas.sync()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        #expect(model.displayScale > 0.4)
+    }
+
+    @Test @MainActor func restoringAnInspectorKeepsTheChosenZoom() {
+        let model = EditorModel(document: CaptureDocument(original: Data(), width: 1400, height: 900))
+        model.setZoom(1.25)
+        model.inspector = "layers"
+        #expect(model.visiblePanels(width: 980).inspector == "layers")
+        #expect(!model.visiblePanels(width: 980).backdrop)
+        model.showBackdrop = true
+        #expect(model.visiblePanels(width: 980).inspector.isEmpty)
+        #expect(model.visiblePanels(width: 980).backdrop)
+        #expect(model.visiblePanels(width: 1280).inspector == "layers")
+        #expect(model.visiblePanels(width: 1280).backdrop)
+        #expect(model.zoom == 1.25)
+    }
+
+    @Test @MainActor func exportDimensionsIncludeCropBackdropAndOutputScale() {
+        var document = CaptureDocument(original: Data(), width: 1400, height: 900)
+        document.crop = CGRect(x: 10, y: 10, width: 701, height: 301)
+        document.backdrop.fill = .solid
+        document.backdrop.padding = 12
+        let model = EditorModel(document: document)
+        model.fileExportScale = { 0.5 }
+        #expect(model.exportDimensions(at: 1) == CGSize(width: 363, height: 163))
+        #expect(model.exportDimensions(at: 2) == CGSize(width: 725, height: 325))
+    }
+
     @Test @MainActor func gestureCommitsOnceAndUndoRemovesWholeStroke() {
         let model = EditorModel(document: CaptureDocument(original: Data(), width: 800, height: 600))
         let tool = DrawingTool()

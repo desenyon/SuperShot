@@ -32,22 +32,26 @@ struct SidePanel: View {
                 IconButton("xmark", label: "Close panel", size: 24) { model.inspector = "" }
             }
             .padding(.horizontal, DS.lg).padding(.top, DS.lg).padding(.bottom, DS.md)
-            ScrollView {
-                VStack(alignment: .leading, spacing: DS.lg) {
-                    switch model.inspector {
-                    case "layers": layers
-                    case "info": details
-                    case "intelligence": smartTools
-                    default: recognition
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, DS.lg).padding(.bottom, DS.lg)
+            ViewThatFits(in: .vertical) {
+                inspectorRows.fixedSize(horizontal: false, vertical: true)
+                ScrollView { inspectorRows }.scrollIndicators(.hidden)
             }
-            .scrollIndicators(.hidden)
         }
         .frame(width: DS.sidePanelWidth)
-        .modifier(GlassSurface())
+        .modifier(GlassSurface(radius: DS.lg))
+    }
+
+    private var inspectorRows: some View {
+        Group {
+            switch model.inspector {
+            case "layers": layers
+            case "info": details
+            case "intelligence": smartTools
+            default: recognition
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, DS.lg).padding(.bottom, DS.lg)
     }
 
     private var title: String {
@@ -64,7 +68,8 @@ struct SidePanel: View {
     private var layers: some View {
         VStack(alignment: .leading, spacing: DS.sm) {
             if model.document.layers.isEmpty {
-                emptyState("square.3.layers.3d", "No annotations yet", "Pick a tool and draw on the image. Each mark becomes a layer you can restyle or remove.")
+                Text("No annotations yet").font(DS.caption).foregroundStyle(.secondary)
+                    .padding(.vertical, DS.sm)
             }
             ForEach(model.document.layers.reversed()) { layer in
                 let selected = model.selected.contains(layer.id)
@@ -92,10 +97,7 @@ struct SidePanel: View {
             HStack(spacing: DS.sm) {
                 Icon("lock.fill", size: 13).frame(width: 26, height: 26).foregroundStyle(.secondary)
                     .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Original image").font(DS.body)
-                    Text("Never modified").font(DS.caption).foregroundStyle(.tertiary)
-                }
+                Text("Original image").font(DS.body)
             }.padding(6)
         }
     }
@@ -103,7 +105,7 @@ struct SidePanel: View {
     // MARK: Details
 
     private var details: some View {
-        let doc = model.document, size = DocumentRenderer.layout(model.current).size
+        let doc = model.document, size = model.exportDimensions(at: model.outputMultiplier)
         return VStack(alignment: .leading, spacing: DS.md) {
             Card {
                 row("Export size", "\(Int(size.width)) × \(Int(size.height)) px")
@@ -147,9 +149,14 @@ struct SidePanel: View {
                 Icon("lock.shield", weight: .bold, size: 13)
                 Text("Runs on this Mac. Nothing is uploaded.").font(DS.caption)
             }.foregroundStyle(.secondary)
+            Button { model.performAI(.redact) } label: {
+                Label { Text("Smart redact") } icon: { Icon("eye-slash", size: DS.iconSize) }
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PrimaryButtonStyle()).disabled(model.busy)
+            .help("Find sensitive details, then choose what to cover")
             SectionLabel("Clean up")
             Card(padding: DS.xs) {
-                action("eye.slash", "Smart redact", "Hide emails, keys, and faces", .redact)
                 action("person.crop.rectangle", "Lift subject", "Remove the background", .removeBackground)
                 actionRow("eraser", "Patch erase", "Fill a selected area") {
                     guard let region = model.document.layers.first(where: { model.selected.contains($0.id) })?.rect else {
@@ -160,11 +167,11 @@ struct SidePanel: View {
             }
             SectionLabel("Extract")
             Card(padding: DS.xs) {
-                action("text.alignleft", "Copy as Markdown", "Keep headings and lists", .markdown)
-                action("tablecells", "Table to CSV", "Rows and columns as text", .csv)
-                action("chevron.left.forwardslash.chevron.right", "Extract code", "Code blocks only", .code)
-                action("text.bubble", "Describe", "Alt text for this image", .describe)
-                action("character.cursor.ibeam", "Suggest a name", "A file name from the content", .filename)
+                command("text.alignleft", "Copy as Markdown", .markdown)
+                command("tablecells", "Table to CSV", .csv)
+                command("chevron.left.forwardslash.chevron.right", "Extract code", .code)
+                command("text.bubble", "Generate alt text", .describe)
+                command("character.cursor.ibeam", "Suggest a filename", .filename)
             }
             SectionLabel("Point at something")
             HStack(spacing: DS.sm) {
@@ -190,6 +197,17 @@ struct SidePanel: View {
     }
     private func actionRow(_ symbol: String, _ title: String, _ subtitle: String, perform: @escaping () -> Void) -> some View {
         ActionRow(symbol: symbol, title: title, subtitle: subtitle, action: perform).disabled(model.busy)
+    }
+    private func command(_ symbol: String, _ title: String, _ request: AIRequest) -> some View {
+        Button { model.performAI(request) } label: {
+            HStack(spacing: DS.sm) {
+                Icon(symbol, size: DS.iconSize).frame(width: DS.metadataIconSize)
+                Text(title).font(DS.body)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, DS.sm).frame(minHeight: DS.toolButtonSize)
+            .contentShape(Rectangle())
+        }.buttonStyle(PressableStyle()).disabled(model.busy)
     }
 
     // MARK: Text and codes
@@ -318,6 +336,7 @@ struct ActionRow: View {
 
 struct EditorPanelSwitcher: View {
     let model: EditorModel
+    let visible: Bool
     @Namespace private var tile
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var scheme
@@ -331,11 +350,11 @@ struct EditorPanelSwitcher: View {
             tab("stack", "Layers", "layers")
             tab("info", "Details", "info")
         }
-        .padding(DS.capsulePadding).frame(height: DS.capsuleHeight).modifier(GlassSurface(radius: DS.pill))
+        .padding(DS.capsulePadding).frame(height: DS.capsuleHeight).modifier(GlassSurface(radius: DS.md))
     }
 
     private func tab(_ symbol: String, _ label: String, _ id: String) -> some View {
-        let selected = model.inspector == id
+        let selected = visible && model.inspector == id
         return Button {
             withAnimation(DS.Motion.panel(reduceMotion)) {
                 if selected { model.inspector = "" }

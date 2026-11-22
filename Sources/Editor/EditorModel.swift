@@ -17,6 +17,13 @@ struct EditorExportFeedback: Equatable {
     let succeeded: Bool
 }
 
+struct EditorPanels {
+    let backdrop: Bool
+    let inspector: String
+}
+
+package enum BackdropSection { case style, layout, watermark }
+
 @MainActor @Observable public final class EditorModel {
     private var history: DocumentHistory
     public var document: CaptureDocument { history.document }
@@ -33,7 +40,10 @@ struct EditorExportFeedback: Equatable {
     public var style = ToolStyle()
     /// The active right-hand panel, or an empty identifier when the panel is closed.
     public var inspector = "" {
-        didSet { if inspector != "ask" { pickingAskRegion = false } }
+        didSet {
+            if inspector != "ask" { pickingAskRegion = false }
+            if !inspector.isEmpty { prefersBackdrop = false }
+        }
     }
     public var ask: AskModel?
     public var askOptions: AskOptions?
@@ -101,7 +111,29 @@ struct EditorExportFeedback: Equatable {
         selected = [layer.id]; tool = "select"
     }
     /// Left-hand backdrop panel.
-    public var showBackdrop = true
+    public var showBackdrop = true {
+        didSet {
+            if showBackdrop {
+                prefersBackdrop = true
+                pickingAskRegion = false
+            }
+        }
+    }
+    private var prefersBackdrop = true
+    package var backdropSection = BackdropSection.style
+
+    /// Fit reserves space for the same panels the window actually presents. Narrow windows
+    /// show the last-used inspector, and widening brings both back when they are open.
+    func visiblePanels(width: CGFloat) -> EditorPanels {
+        if showBackdrop && !inspector.isEmpty {
+            let right = inspector == "ask" ? DS.Ask.editorWidth : DS.sidePanelWidth
+            let panelSpace = DS.backdropPanelWidth + right + (DS.edge + DS.canvasMargin) * 2
+            if width - panelSpace < DS.xxl * 12 {
+                return EditorPanels(backdrop: prefersBackdrop, inspector: prefersBackdrop ? "" : inspector)
+            }
+        }
+        return EditorPanels(backdrop: showBackdrop, inspector: inspector)
+    }
     /// Where the inline text field sits, in canvas view coordinates.
     public var textViewPoint: CGPoint?
     /// Actual on-screen scale of the canvas, reported by the canvas view.
@@ -114,16 +146,22 @@ struct EditorExportFeedback: Equatable {
     public var textInput = ""
     public var format = "public.png"
     public var outputMultiplier: Double = 1
+    public var fileExportScale: (() -> Double)?
     public var colorFormat = "hex"
     public var toolShortcuts: [String: String] = [:]
     public var saveBackdropAction: ((Backdrop) -> Void)?
+    public var defaultBackdrop: Backdrop?
     public var savedPresets: [BackdropPreset] = []
     public var presetName = ""
     public var savePresetAction: ((String,Backdrop) -> Void)?
+    public var importPresetAction: (() -> Void)?
+    public var exportPresetAction: ((BackdropPreset) -> Void)?
+    public var updatePresetAction: ((BackdropPreset, Backdrop) -> Void)?
     public var status = ""
     var exportFeedback: EditorExportFeedback?
     public var copyAction: ((CGImage) async -> EditorWriteResult)?
     public var saveAction: ((CGImage, String, CaptureDocument) async -> EditorWriteResult)?
+    public var shareLinkAction: ((CGImage, String) -> Void)?
     public var pinAction: ((CGImage) -> Void)?
     public var autosaveAction: ((CaptureDocument) -> Void)?
     public var recognition: RecognitionResult?
@@ -301,6 +339,29 @@ struct EditorExportFeedback: Equatable {
     public func pasteImage() {
         if let image=NSImage(pasteboard:.general),let cg=image.cgImage(forProposedRect:nil,context:nil,hints:nil) { addImage(cg) }
     }
+    func exportDimensions(at multiplier: Double) -> CGSize {
+        let size = DocumentRenderer.layout(current).size
+        let scale = fileExportScale?() ?? 1
+        return CGSize(width: max(1, (ceil(size.width * multiplier) * scale).rounded()),
+                      height: max(1, (ceil(size.height * multiplier) * scale).rounded()))
+    }
+
+    func shareLink() {
+        guard !busy, let shareLinkAction else { return }
+        let snapshot = document, multiplier = outputMultiplier
+        status = "Rendering image…"
+        busy = true
+        Task {
+            defer { busy = false; status = "" }
+            do {
+                let image = try await Task.detached(priority: .userInitiated) {
+                    try DocumentRenderer.render(snapshot, scale: multiplier)
+                }.value
+                shareLinkAction(image, snapshot.source)
+            } catch { message = error.localizedDescription }
+        }
+    }
+
     public func export(copy: Bool = false, pin: Bool = false) {
         guard !busy else { return }
         busy = true

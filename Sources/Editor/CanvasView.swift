@@ -11,7 +11,7 @@ struct EditorCanvas: NSViewRepresentable {
     func updateNSView(_ view: CanvasView, context: Context) {
         // Reading these registers them with Observation so the canvas updates when they change.
         _ = model.image; _ = model.selected; _ = model.zoom; _ = model.pan; _ = model.draft; _ = model.rasterExcluded
-        _ = model.zoomCommand; _ = model.inspector; _ = model.showBackdrop; _ = model.tool; _ = model.recognition
+        _ = model.zoomCommand; _ = model.visiblePanels(width: view.bounds.width); _ = model.tool; _ = model.recognition
         _ = model.pickingAskRegion; _ = model.highlightedAskRegion; _ = model.ask?.regions.last?.id
         view.sync()
     }
@@ -84,11 +84,13 @@ struct EditorCanvas: NSViewRepresentable {
     // MARK: Geometry
 
     fileprivate var geometry: DocumentRenderer.Layout { DocumentRenderer.layout(model.current) }
+    private var panels: EditorPanels { model.visiblePanels(width: bounds.width) }
     /// The area left free by the floating panels and bars.
     private var available: CGRect {
-        let left = model.showBackdrop ? DS.backdropPanelWidth + DS.edge + DS.canvasMargin : DS.canvasMargin
-        let panelWidth = model.inspector == "ask" ? DS.Ask.editorWidth : DS.sidePanelWidth
-        let right = model.inspector.isEmpty ? DS.canvasMargin : panelWidth + DS.edge + DS.canvasMargin
+        let panels = panels
+        let left = panels.backdrop ? DS.backdropPanelWidth + DS.edge + DS.canvasMargin : DS.canvasMargin
+        let panelWidth = panels.inspector == "ask" ? DS.Ask.editorWidth : DS.sidePanelWidth
+        let right = panels.inspector.isEmpty ? DS.canvasMargin : panelWidth + DS.edge + DS.canvasMargin
         return CGRect(x: left, y: DS.canvasTop, width: max(100, bounds.width - left - right),
                       height: max(100, bounds.height - DS.canvasTop - DS.canvasBottom))
     }
@@ -165,13 +167,13 @@ struct EditorCanvas: NSViewRepresentable {
         wasPicking = model.pickingAskRegion
         if !wasPicking { askStart = nil; askRect = nil }
         var mark: AskRegionGuide.Mark?
-        if model.inspector == "ask", let ask = model.ask {
+        if panels.inspector == "ask", let ask = model.ask {
             if let rect = askRect, !rect.isEmpty {
-                mark = .init(rect: viewRect(rect), label: "Region \(ask.nextRegion) · \(Int(rect.width)) × \(Int(rect.height))")
+                mark = .init(rect: viewRect(rect), label: "Region \(ask.nextRegion)")
             } else if let rect = model.highlightedAskRegion {
                 mark = .init(rect: viewRect(rect), label: nil)
             } else if let region = ask.regions.last, region.document == model.document {
-                mark = .init(rect: viewRect(region.rect), label: region.label)
+                mark = .init(rect: viewRect(region.rect), label: region.title)
             }
         }
         if mark != nil, askHost == nil {
@@ -219,7 +221,7 @@ struct EditorCanvas: NSViewRepresentable {
     override func mouseDown(with event: NSEvent) {
         stage.layer?.removeAnimation(forKey: "zoom")
         window?.makeFirstResponder(self)
-        if model.inspector == "ask", model.pickingAskRegion || event.modifierFlags.contains(.command) {
+        if panels.inspector == "ask", model.pickingAskRegion || event.modifierFlags.contains(.command) {
             let point = imagePoint(event)
             if model.document.visibleBounds.contains(point) {
                 model.pickingAskRegion = true; askStart = point; askRect = nil; syncAskGuide()
