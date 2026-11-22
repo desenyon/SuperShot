@@ -34,9 +34,16 @@ struct AskRegionOverlay: View {
                             .padding(.horizontal, DS.sm).padding(.vertical, DS.xs)
                             .background(DS.accent, in: RoundedRectangle(cornerRadius: DS.xs))
                             .visualEffect { content, dimensions in
-                                let x = max(DS.xs, min(rect.minX, size.width - dimensions.size.width - DS.xs))
+                                let maxX = size.width - dimensions.size.width - DS.xs
+                                let toRight = rect.maxX + DS.sm
+                                let toLeft = rect.minX - dimensions.size.width - DS.sm
+                                let besideY = max(DS.xs, min(rect.midY - dimensions.size.height / 2, size.height - dimensions.size.height - DS.xs))
+                                if toRight <= maxX || toLeft >= DS.xs {
+                                    return content.offset(x: toRight <= maxX ? toRight : toLeft, y: besideY)
+                                }
+                                let x = max(DS.xs, min(rect.minX, maxX))
                                 let y = rect.minY - dimensions.size.height - DS.sm
-                                return content.offset(x: x, y: y >= 0 ? y : rect.maxY + DS.sm)
+                                return content.offset(x: x, y: y >= DS.xs ? y : rect.maxY + DS.sm)
                             }
                     }
                 }

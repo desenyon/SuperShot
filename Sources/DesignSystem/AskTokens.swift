@@ -17,7 +17,7 @@ public extension DS {
         public static let hudWash = NSColor.white.withAlphaComponent(0.12)
         @MainActor public static let hudLabel = NSFont.systemFont(ofSize: 10.5, weight: .medium)
         /// Corner radius of the glass HUD pieces after a selection.
-        public static let hudRadius: CGFloat = 18
+        public static let hudRadius: CGFloat = 12
         /// Room around the HUD for the glass edge highlight and shadow.
         public static let hudMargin: CGFloat = 10
     }

@@ -80,6 +80,7 @@ public struct AskQuickAction: Equatable, Sendable, Identifiable {
     public private(set) var awaitingConsent = false
     public private(set) var waitingForBrowser = false
     public private(set) var sensitiveCount: Int?
+    private(set) var redactionPreview: CGImage?
     @ObservationIgnored private var inspection: Task<AskCapture, Error>?
     public private(set) var error: String?
     public private(set) var isSending = false
@@ -98,7 +99,7 @@ public struct AskQuickAction: Equatable, Sendable, Identifiable {
     private var service: any AssistantService
     private var conversation: (any AssistantConversation)?
     private var contextCapture: AskCapture?
-    private var consented = false
+    private var approvedDocument: CaptureDocument?
     private var hidesDetails = false
     private var summary = ""
     private struct Question {
@@ -113,6 +114,7 @@ public struct AskQuickAction: Equatable, Sendable, Identifiable {
     var captureImage: CGImage? { contextCapture?.image }
     var captureDocument: CaptureDocument? { contextCapture?.document }
     var includesEarlierMessages: Bool { !summary.isEmpty }
+    var pendingAttachmentCount: Int { pending?.regions.count ?? 0 }
     private var turn: Task<Void, Never>?
     private var login: Task<Void, Never>?
     private var generation = UUID()
@@ -161,6 +163,7 @@ public struct AskQuickAction: Equatable, Sendable, Identifiable {
 
     private func send(document: CaptureDocument, action: AskQuickAction?, typed: String) {
         guard canSend else { if action != nil { draft = typed }; return }
+        updateDraft(for: document)
         var question = AskMessage(.user, draft.trimmingCharacters(in: .whitespacesAndNewlines), attachments: regions.map(\.label))
         question.action = action; question.typed = typed
         // The old provider's unanswered turn remains visible until its replacement is submitted.
@@ -171,28 +174,56 @@ public struct AskQuickAction: Equatable, Sendable, Identifiable {
         }
         pending = Question(message: question, document: document, regions: regions)
         messages.append(question); draft = ""; regions = []; error = nil
-        if options.confirmBeforeSending && !consented {
+        if options.confirmBeforeSending && approvedDocument == nil {
             awaitingConsent = true
             inspectLocally(document, questionID: question.id)
         }
         else { confirm(redact: hidesDetails || options.redactBeforeSending) }
     }
 
+    func updateDraft(for document: CaptureDocument) {
+        guard !isSending else { return }
+        if awaitingConsent, pending?.document != document { cancelConsent() }
+        if let approvedDocument, approvedDocument != document {
+            retireSession()
+            rememberTranscript()
+            self.approvedDocument = nil
+        }
+        if regions.contains(where: { $0.document != document }) {
+            regions = regions.compactMap { region in
+                guard region.document.id == document.id else { return nil }
+                let visible = region.rect.intersection(document.visibleBounds)
+                guard !visible.isEmpty else { return nil }
+                return AskRegion(document: document, rect: visible, number: region.number)
+            }
+        }
+    }
+
     private func inspectLocally(_ document: CaptureDocument, questionID: UUID) {
-        sensitiveCount = nil
+        clearInspectionPreview()
         inspection?.cancel()
         let task = Task { try await AskCapture.prepare(document, recognize: true) }
         inspection = task
         Task { [weak self] in
-            let count = try? await task.value.candidates.count
-            guard self?.pending?.message.id == questionID else { return }
-            self?.sensitiveCount = count
+            guard let capture = try? await task.value,
+                  self?.pending?.message.id == questionID, self?.awaitingConsent == true else { return }
+            self?.sensitiveCount = capture.candidates.count
+            let preview = await Task.detached(priority: .utility) { try? capture.redactedThumbnail(maxDimension: 420) }.value
+            guard self?.pending?.message.id == questionID, self?.awaitingConsent == true else { return }
+            self?.redactionPreview = preview
         }
+    }
+
+    private func clearInspectionPreview() {
+        sensitiveCount = nil
+        redactionPreview = nil
     }
 
     public func confirm(redact: Bool) {
         guard let pending, !isSending, availability?.isReady == true else { return }
-        consented = true; awaitingConsent = false; hidesDetails = redact || options.redactBeforeSending
+        approvedDocument = pending.document
+        awaitingConsent = false; hidesDetails = redact || options.redactBeforeSending
+        clearInspectionPreview()
         let reply = AskMessage(.assistant, "", status: .streaming)
         messages.append(reply); isSending = true; error = nil
         turn = Task { [weak self] in
@@ -309,7 +340,7 @@ public struct AskQuickAction: Equatable, Sendable, Identifiable {
     }
 
     private func retireSession(cancel: Bool = false) {
-        inspection?.cancel(); inspection = nil; sensitiveCount = nil
+        inspection?.cancel(); inspection = nil; clearInspectionPreview()
         let old = conversation
         conversation = nil; contextCapture = nil
         Task { if cancel { await old?.cancel() }; await old?.close() }
@@ -337,14 +368,17 @@ public struct AskQuickAction: Equatable, Sendable, Identifiable {
         error = nil
         if pending != nil {
             retireSession(); rememberTranscript()
-            if options.confirmBeforeSending && !consented { awaitingConsent = true }
+            if options.confirmBeforeSending && approvedDocument == nil, let pending {
+                awaitingConsent = true
+                inspectLocally(pending.document, questionID: pending.message.id)
+            }
             else { confirm(redact: hidesDetails) }
         } else { Task { await refreshAvailability() } }
     }
 
     public func cancelConsent() {
         guard awaitingConsent, let pending else { return }
-        inspection?.cancel(); inspection = nil; sensitiveCount = nil
+        inspection?.cancel(); inspection = nil; clearInspectionPreview()
         draft = pending.message.action == nil ? pending.message.text : pending.message.typed; regions = pending.regions
         messages.removeAll { $0.id == pending.message.id }
         self.pending = nil; awaitingConsent = false
@@ -353,7 +387,7 @@ public struct AskQuickAction: Equatable, Sendable, Identifiable {
     public func newConversation() {
         stop(); retireSession(); cancelConsent()
         messages = []; regions = []; draft = ""; pending = nil; summary = ""; nextRegion = 1
-        consented = false; hidesDetails = false; error = nil; resubmittedMessageID = nil
+        approvedDocument = nil; hidesDetails = false; error = nil; resubmittedMessageID = nil
         onTranscript?([])
     }
 
@@ -367,7 +401,7 @@ public struct AskQuickAction: Equatable, Sendable, Identifiable {
         stop(); retireSession(); rememberTranscript()
         generation = UUID(); login?.cancel(); waitingForBrowser = false; pending = nil
         service = factory(provider); options.provider = provider; options.model = nil
-        consented = false; availability = nil; usage = nil; error = nil
+        approvedDocument = nil; availability = nil; usage = nil; error = nil
         Task { await refreshAvailability() }
     }
 
@@ -383,8 +417,9 @@ public struct AskQuickAction: Equatable, Sendable, Identifiable {
             next.provider = options.provider; next.model = options.model
         }
         if next.model != options.model || next.redactBeforeSending != options.redactBeforeSending ||
-            next.includeRecognizedText != options.includeRecognizedText {
-            stop(); retireSession(); rememberTranscript(); consented = false; hidesDetails = next.redactBeforeSending
+            next.includeRecognizedText != options.includeRecognizedText ||
+            (next.confirmBeforeSending && !options.confirmBeforeSending) {
+            stop(); retireSession(); rememberTranscript(); approvedDocument = nil; hidesDetails = next.redactBeforeSending
         }
         options = next
     }

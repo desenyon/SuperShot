@@ -105,6 +105,55 @@ private struct ScriptedAssistant: AssistantService {
         #expect(!model.isStreaming && model.messages.last?.text == "Partial" && model.error == nil)
     }
 
+    @Test func editingAfterStopRequiresConsentForTheNewPixels() async throws {
+        let document = try fixture()
+        let session = ScriptedSession()
+        let model = await make(session, consent: true)
+        model.draft = "Read this"
+        model.send(document: document)
+        model.confirm(redact: false)
+        try await wait { session.state.withLock { $0.prompts.count == 1 } }
+        model.stop()
+        try await wait { session.state.withLock { $0.closed } }
+
+        var edited = document
+        edited.crop = CGRect(x: 8, y: 4, width: 40, height: 30)
+        model.draft = "Read the cropped image"
+        model.send(document: edited)
+        #expect(model.awaitingConsent)
+        #expect(session.state.withLock { $0.contexts.count == 1 && $0.prompts.count == 1 })
+        model.confirm(redact: false)
+        try await wait { session.state.withLock { $0.prompts.count == 2 } }
+        let replacement = try #require(session.state.withLock { $0.contexts.last })
+        #expect(replacement.image.width == 40 && replacement.image.height == 30)
+        model.stop()
+    }
+
+    @Test func pendingConsentAndSelectedRegionFollowCommittedEdits() async throws {
+        let document = try fixture()
+        let session = ScriptedSession()
+        let model = await make(session, consent: true)
+        model.attach(CGRect(x: 2, y: 4, width: 24, height: 14), in: document)
+        model.draft = "Describe the region"
+        model.send(document: document)
+        #expect(model.awaitingConsent)
+
+        var edited = document
+        edited.crop = CGRect(x: 8, y: 4, width: 18, height: 30)
+        model.updateDraft(for: edited)
+        #expect(!model.awaitingConsent)
+        #expect(model.draft == "Describe the region")
+        #expect(model.regions.first?.rect == CGRect(x: 8, y: 4, width: 18, height: 14))
+        model.confirm(redact: false)
+        #expect(session.state.withLock { $0.contexts.isEmpty })
+
+        model.send(document: edited)
+        model.confirm(redact: false)
+        try await wait { session.state.withLock { $0.prompts.count == 1 } }
+        #expect(session.state.withLock { $0.attachments.first?.image.width == 18 })
+        model.stop()
+    }
+
     @Test func switchAfterLimitRequiresConsentAndCarriesEarlierTurns() async throws {
         let first = ScriptedSession(), second = ScriptedSession(), doc = try fixture()
         let model = AskModel(options: AskOptions(includeRecognizedText: false),
@@ -160,6 +209,26 @@ private struct ScriptedAssistant: AssistantService {
         #expect(DocumentRenderer.sample(region, at: CGPoint(x: 2, y: 2)).red < 0.05)
         #expect(DocumentRenderer.sample(context.image, at: CGPoint(x: 20, y: 55)).red > 0.95)
         #expect(DocumentRenderer.sample(image, at: CGPoint(x: 20, y: 10)).red > 0.95)
+        let thumbnail = try capture.redactedThumbnail(maxDimension: 48)
+        let preview = try #require(thumbnail)
+        #expect(preview.width == 48 && preview.height == 36)
+        #expect(DocumentRenderer.sample(preview, at: CGPoint(x: 10, y: 6)).red < 0.05)
+    }
+
+    @Test func regionThumbnailReflectsTheAnchoredCropWithoutSendingAnything() async throws {
+        var doc = try fixture()
+        doc.crop = CGRect(x: 5, y: 5, width: 70, height: 50)
+        doc.backdrop.fill = .solid
+        doc.backdrop.padding = 12
+        let session = ScriptedSession()
+        let model = await make(session)
+        model.attach(CGRect(x: 10, y: 12, width: 24, height: 12), in: doc)
+        let region = try #require(model.regions.first)
+        let thumbnail = await region.thumbnail()
+        let preview = try #require(thumbnail)
+        #expect(preview.width == 24 && preview.height == 12)
+        #expect(DocumentRenderer.sample(preview, at: CGPoint(x: 12, y: 6)).red > 0.95)
+        #expect(session.state.withLock { $0.contexts.isEmpty && $0.prompts.isEmpty })
     }
 }
 

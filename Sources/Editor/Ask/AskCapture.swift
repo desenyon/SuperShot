@@ -11,7 +11,18 @@ public struct AskRegion: Identifiable, Sendable {
     let document: CaptureDocument
     public let rect: CGRect
     let number: Int
-    public var label: String { "Region \(number) · \(Int(rect.width)) × \(Int(rect.height))" }
+    var title: String { "Region \(number)" }
+    public var label: String { "\(title) · \(Int(rect.width)) × \(Int(rect.height))" }
+
+    func thumbnail() async -> CGImage? {
+        await Task.detached(priority: .utility) {
+            let size = DocumentRenderer.layout(document).size
+            let crop = AskCapture.pixelRect(rect, in: document)
+            let scale = max(0.01, min(1, 96 / max(crop.width, crop.height), 1_280 / max(size.width, size.height)))
+            let scaledCrop = crop.applying(CGAffineTransform(scaleX: scale, y: scale)).integral
+            return (try? DocumentRenderer.render(document, scale: scale))?.cropping(to: scaledCrop)
+        }.value
+    }
 }
 
 struct AskCapture: Sendable {
@@ -59,6 +70,21 @@ struct AskCapture: Sendable {
         for candidate in candidates { ctx.fill(candidate.rect.integral) }
         guard let covered = ctx.makeImage() else { throw DocumentRenderer.Error.tooLarge }
         return covered
+    }
+
+    func redactedThumbnail(maxDimension: CGFloat) throws -> CGImage? {
+        guard !candidates.isEmpty else { return nil }
+        let covered = try pixels(redact: true)
+        let scale = maxDimension / CGFloat(max(covered.width, covered.height))
+        guard scale < 1 else { return covered }
+        let width = max(1, Int((CGFloat(covered.width) * scale).rounded()))
+        let height = max(1, Int((CGFloat(covered.height) * scale).rounded()))
+        guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.interpolationQuality = .high
+        ctx.draw(covered, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return ctx.makeImage()
     }
 
     static func pixelRect(_ rect: CGRect, in document: CaptureDocument) -> CGRect {

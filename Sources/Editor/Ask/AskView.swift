@@ -4,20 +4,29 @@ import DesignSystem
 import Render
 
 public struct AskView: View {
+    public enum Context {
+        case screenshot, recordingFrame
+    }
+
     @Bindable var model: AskModel
     let editor: EditorModel
     let close: () -> Void
     let openEditor: (() -> EditorModel)?
+    let context: Context
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduced
     @FocusState private var focused: Bool
     @LocalState private var followsStream = true
+    @LocalState private var showingRedactedPreview = false
+    @LocalState private var selectingFrameRegion = false
 
-    public init(model: AskModel, editor: EditorModel, close: @escaping () -> Void, openEditor: (() -> EditorModel)? = nil) {
-        self.model = model; self.editor = editor; self.close = close; self.openEditor = openEditor
+    public init(model: AskModel, editor: EditorModel, close: @escaping () -> Void, openEditor: (() -> EditorModel)? = nil,
+                context: Context = .screenshot) {
+        self.model = model; self.editor = editor; self.close = close; self.openEditor = openEditor; self.context = context
     }
 
     private var provider: AssistantProvider { model.options.provider }
+    private var isRecording: Bool { context == .recordingFrame }
     private var reveal: AnyTransition { DS.Motion.reveal(from: .bottom, reduceMotion: reduced) }
 
     public var body: some View {
@@ -25,10 +34,9 @@ public struct AskView: View {
             header
             if model.usage?.limitReached == true {
                 state("clock", "Usage limit reached", limitDetail) {
-                    Capsule().fill(DS.slate.opacity(DS.mutedOpacity)).frame(width: DS.Ask.editorWidth / 2, height: DS.xs)
                     alternateProvider
+                    Text("Switching providers keeps this conversation.").font(DS.caption).foregroundStyle(.secondary)
                 }.transition(reveal)
-                Text("Switching providers keeps this conversation").font(DS.caption).foregroundStyle(.secondary).padding(DS.md)
             } else if let availability = model.availability, !availability.isReady {
                 accountState(availability).transition(reveal)
                 if let error = model.error { errorNotice(error) }
@@ -36,17 +44,19 @@ public struct AskView: View {
                 transcript
                 if model.awaitingConsent { consent.transition(reveal) }
                 else if let error = model.error { errorNotice(error).transition(reveal) }
+                else if model.isStreaming { streamingControl.transition(reveal) }
                 else if !model.options.suggestions.isEmpty && !model.isStreaming { suggestions }
-                composer
+                if !model.awaitingConsent { composer }
                 footer
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .modifier(GlassSurface())
+        .modifier(GlassSurface(radius: DS.lg, backing: openEditor == nil ? nil : DS.panel(scheme).opacity(0.76)))
         .animation(DS.Motion.panel(reduced), value: model.awaitingConsent)
         .animation(DS.Motion.panel(reduced), value: model.error)
         .animation(DS.Motion.panel(reduced), value: model.usage?.limitReached)
         .task { if model.availability == nil { await model.refreshAvailability() } }
+        .onChange(of: editor.document) { _, document in model.updateDraft(for: document) }
         .onExitCommand { escape() }
     }
 
@@ -62,8 +72,9 @@ public struct AskView: View {
                     Text(provider.title)
                     Icon("caret-down", weight: .bold, size: DS.sm + DS.xs / 2)
                 }.font(DS.caption).foregroundStyle(.secondary)
-                    .padding(.horizontal, DS.sm).padding(.vertical, DS.xs).background(DS.card(scheme), in: Capsule())
-                    .contentShape(Capsule())
+                    .padding(.horizontal, DS.sm).padding(.vertical, DS.xs)
+                    .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.controlRadius))
+                    .contentShape(Rectangle())
             }.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
                 .accessibilityLabel("Provider: \(provider.title)").help("Switch provider")
             Spacer()
@@ -85,7 +96,6 @@ public struct AskView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.lg) {
                     contextCard
-                    if model.messages.isEmpty { intro.transition(DS.Motion.rise(reduceMotion: reduced)) }
                     ForEach(model.messages) { message in
                         messageView(message).transition(DS.Motion.rise(reduceMotion: reduced))
                     }
@@ -116,16 +126,19 @@ public struct AskView: View {
         let age = Date.now.timeIntervalSince(document.date) < 60 ? "captured just now" : document.date.formatted(.relative(presentation: .named))
         return HStack(spacing: DS.md) {
             if let image = model.captureImage ?? editor.image {
-                Image(decorative: image, scale: 1).resizable().scaledToFill()
+                Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: isRecording ? .fit : .fill)
                     .frame(width: DS.Ask.thumbnail.width, height: DS.Ask.thumbnail.height)
                     .clipShape(RoundedRectangle(cornerRadius: DS.xs))
             }
             VStack(alignment: .leading, spacing: DS.xs / 2) {
-                Text(document.source.replacingOccurrences(of: " — ", with: " · ")).font(DS.body.weight(.medium)).lineLimit(1)
+                Text(isRecording ? "Edited frame" : document.source.replacingOccurrences(of: " — ", with: " · "))
+                    .font(DS.body.weight(.medium)).lineLimit(1)
                 HStack(spacing: DS.xs) {
                     Text(verbatim: "\(Int(size.width)) × \(Int(size.height))").font(DS.mono)
-                    Text("·").accessibilityHidden(true)
-                    Text(age).lineLimit(1)
+                    if !isRecording {
+                        Text("·").accessibilityHidden(true)
+                        Text(age).lineLimit(1)
+                    }
                 }.font(DS.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
@@ -150,17 +163,17 @@ public struct AskView: View {
                     .background(DS.hover(scheme), in: UnevenRoundedRectangle(topLeadingRadius: DS.Ask.bubble, bottomLeadingRadius: DS.Ask.bubble,
                                                                             bottomTrailingRadius: DS.xs, topTrailingRadius: DS.Ask.bubble))
             }
-        } else if message.status == .streaming && message.text.isEmpty {
-            AskThinking(provider: provider.title).transition(DS.Motion.pop(reduceMotion: reduced))
-        } else if !message.text.isEmpty || message.status == .streaming {
+        } else if !message.text.isEmpty {
             VStack(alignment: .leading, spacing: DS.sm) {
                 AskReply(text: message.text, streaming: message.status == .streaming, copy: editor.copyText)
                 if message.status == .done && !message.text.isEmpty {
                     HStack(spacing: DS.sm) {
                         replyButton("copy", "Copy") { editor.copyText(message.text) }
-                        replyButton("text-t", "Add as text") { (openEditor?() ?? editor).addReply(message.text) }
-                        if let rect = model.matchingRegion(in: message.text, document: editor.document, editorText: editor.recognition?.text ?? []) {
-                            replyButton("crosshair-simple", "Show on image") { (openEditor?() ?? editor).flashAskRegion(rect) }
+                        if !isRecording {
+                            replyButton("text-t", "Add as text") { (openEditor?() ?? editor).addReply(message.text) }
+                            if let rect = model.matchingRegion(in: message.text, document: editor.document, editorText: editor.recognition?.text ?? []) {
+                                replyButton("crosshair-simple", "Show on image") { (openEditor?() ?? editor).flashAskRegion(rect) }
+                            }
                         }
                     }
                 }
@@ -182,32 +195,26 @@ public struct AskView: View {
 
     private var actions: [AskQuickAction] { model.options.suggestions.map(AskQuickAction.named) }
 
-    private var intro: some View {
-        VStack(alignment: .leading, spacing: DS.xs) {
-            Text("What would you like to know?").font(DS.emphasis)
-            Text("Pick an action below, or type a question. Ask sees this capture\(model.options.includeRecognizedText ? " and its text" : "").")
-                .font(DS.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-        }.padding(.top, DS.xs).frame(maxWidth: .infinity, alignment: .leading)
-    }
-
     private var suggestions: some View {
-        Group {
-            if actions.count <= 4 {
+        VStack(alignment: .leading, spacing: DS.sm) {
+            if model.messages.isEmpty { Text("What would you like to know?").font(DS.emphasis) }
+            ViewThatFits(in: .horizontal) {
                 HStack(spacing: DS.xs) {
-                    ForEach(Array(actions.enumerated()), id: \.element.id) { i, action in actionButton(action, index: i, fill: true) }
+                    ForEach(Array(actions.enumerated()), id: \.element.id) { i, action in actionButton(action, index: i) }
                 }
-            } else {
+                .fixedSize(horizontal: true, vertical: false)
                 AskChipLayout {
-                    ForEach(Array(actions.enumerated()), id: \.element.id) { i, action in actionButton(action, index: i, fill: false) }
+                    ForEach(Array(actions.enumerated()), id: \.element.id) { i, action in actionButton(action, index: i) }
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, DS.md).padding(.bottom, DS.sm)
     }
 
-    private func actionButton(_ action: AskQuickAction, index: Int, fill: Bool) -> some View {
-        AskActionButton(action: action, fill: fill) { model.ask(action, document: editor.current) }
+    private func actionButton(_ action: AskQuickAction, index: Int) -> some View {
+        AskActionButton(action: action) { model.ask(action, document: editor.current) }
             .staggeredAppear(index)
+            .disabled(model.availability?.isReady != true)
             .help(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? action.prompt : "\(action.title) with your note")
     }
 
@@ -217,40 +224,65 @@ public struct AskView: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: DS.xs) {
                         ForEach(model.regions) { region in
-                            Button { model.removeRegion(region.id) } label: { regionChip(region.label) }
-                                .buttonStyle(PressableStyle()).accessibilityLabel("Remove \(region.label)").help("Remove region")
+                            RegionAttachment(region: region) { model.removeRegion(region.id) }
                         }
                     }
                 }.scrollIndicators(.hidden)
             }
-            TextField(model.messages.isEmpty ? "Ask anything about this capture…" : "Ask a follow-up…", text: $model.draft, axis: .vertical)
+            TextField(model.messages.isEmpty ? (isRecording ? "Ask about this frame…" : "Ask anything about this capture…") : "Ask a follow-up…",
+                      text: $model.draft, axis: .vertical)
                 .lineLimit(1...5).textFieldStyle(.plain).font(DS.body).focused($focused)
-                .accessibilityLabel("Question about this capture").disabled(model.awaitingConsent)
-            HStack {
-                IconButton("selection-plus", label: "Attach a region", selected: editor.pickingAskRegion, size: DS.Ask.send) {
-                    let target = openEditor?() ?? editor; focused = false; target.pickingAskRegion.toggle()
-                }.disabled(model.awaitingConsent || model.isStreaming)
-                if editor.pickingAskRegion { Text("Drag on the image").font(DS.caption).foregroundStyle(.secondary) }
-                Spacer()
-                Button { model.isStreaming ? model.stop() : model.send(document: editor.current) } label: {
-                    HStack(spacing: DS.xs) {
-                        Icon(model.isStreaming ? "stop" : "arrow-up", weight: .bold, size: DS.icon)
-                            .id(model.isStreaming).transition(.opacity)
-                        if model.isStreaming { Text("Stop").font(DS.caption).transition(.opacity) }
+                .accessibilityLabel(isRecording ? "Question about this frame" : "Question about this capture")
+                .disabled(model.awaitingConsent)
+            HStack(spacing: DS.sm) {
+                Button {
+                    focused = false
+                    if isRecording { selectingFrameRegion = true }
+                    else { (openEditor?() ?? editor).pickingAskRegion.toggle() }
+                } label: {
+                    Label { Text(editor.pickingAskRegion ? "Drag on the image" : "Attach region") }
+                        icon: { Icon("selection-plus", size: DS.icon) }
+                        .font(DS.caption).lineLimit(1)
+                        .foregroundStyle(editor.pickingAskRegion ? DS.actionInk(scheme) : Color.secondary)
+                }
+                .buttonStyle(PressableStyle()).disabled(model.isStreaming || (isRecording && editor.image == nil))
+                .help(isRecording ? "Select a part of the frame to attach" : "Drag over a part of the screenshot to attach it")
+                .popover(isPresented: $selectingFrameRegion) {
+                    if let image = editor.image {
+                        AskFrameRegionPicker(image: image) { rect in
+                            model.attach(rect, in: editor.current)
+                            selectingFrameRegion = false
+                            focused = true
+                        }
                     }
-                    .padding(.horizontal, DS.sm).frame(minWidth: DS.Ask.send, minHeight: DS.Ask.send)
-                    .foregroundStyle(model.canSend ? DS.onAccent : Color.secondary)
-                    .background(model.canSend ? DS.accent : DS.hover(scheme), in: Capsule())
+                }
+                Spacer()
+                Button { model.send(document: editor.current) } label: {
+                    Icon("arrow-up", weight: .bold, size: DS.icon)
+                        .frame(width: DS.Ask.send, height: DS.Ask.send)
+                        .foregroundStyle(model.canSend ? DS.onAccent : Color.secondary)
+                        .background(model.canSend ? DS.accent : DS.hover(scheme), in: RoundedRectangle(cornerRadius: DS.controlRadius))
                 }
                 .buttonStyle(PressableStyle()).keyboardShortcut(.return, modifiers: .command)
-                .accessibilityLabel(model.isStreaming ? "Stop reply" : "Send question")
-                .help(model.isStreaming ? "Stop reply" : "Send · ⌘↩")
-                .disabled(!model.canSend && !model.isStreaming).animation(DS.Motion.snappy(reduced), value: model.isStreaming)
+                .accessibilityLabel("Send question").help("Send · ⌘↩")
+                .disabled(!model.canSend)
             }
         }.padding(DS.md)
-        .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.Ask.bubble))
-        .overlay(RoundedRectangle(cornerRadius: DS.Ask.bubble).strokeBorder(focused ? DS.accent : DS.hairline(scheme)))
+        .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.smallRadius))
+        .overlay(RoundedRectangle(cornerRadius: DS.smallRadius).strokeBorder(focused ? DS.accent : DS.hairline(scheme)))
         .padding(.horizontal, DS.md).padding(.bottom, DS.sm)
+    }
+
+    private var streamingControl: some View {
+        HStack(spacing: DS.sm) {
+            if model.messages.last?.text.isEmpty == false {
+                Text("Replying…").font(DS.caption).foregroundStyle(.secondary)
+            } else { AskThinking(provider: provider.title) }
+            Spacer(minLength: 0)
+            Button { model.stop() } label: {
+                Label { Text("Stop") } icon: { Icon("stop", size: DS.icon) }
+            }.buttonStyle(QuietButtonStyle()).accessibilityLabel("Stop reply")
+        }.padding(.horizontal, DS.md).padding(.bottom, DS.sm)
     }
 
     private var footer: some View {
@@ -265,29 +297,56 @@ public struct AskView: View {
 
     private var consent: some View {
         VStack(alignment: .leading, spacing: DS.sm) {
-            Label { Text("Send this capture to \(provider.vendor)?").font(DS.emphasis) } icon: { Icon("export", size: DS.icon) }
+            Label { Text("Send to \(provider.vendor)?").font(DS.emphasis) } icon: { Icon("export", size: DS.icon) }
             Text(consentDetail)
                 .font(DS.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Button("Cancel") { model.cancelConsent() }.buttonStyle(.plain).font(DS.caption)
-                Spacer()
-                Button("Hide it, then send") { model.confirm(redact: true) }.buttonStyle(QuietButtonStyle())
-                Button("Send") { model.confirm(redact: false) }.buttonStyle(PrimaryButtonStyle())
+            if let preview = model.redactionPreview {
+                Button { showingRedactedPreview.toggle() } label: {
+                    Label { Text("Preview redactions") } icon: { Icon("eye-slash", size: DS.icon) }
+                }
+                .buttonStyle(QuietButtonStyle())
+                .popover(isPresented: $showingRedactedPreview) {
+                    VStack(alignment: .leading, spacing: DS.sm) {
+                        Text(isRecording ? "Frame with redactions applied" : "Capture with redactions applied").font(DS.emphasis)
+                        Image(decorative: preview, scale: 1).resizable().scaledToFit()
+                            .frame(width: DS.Ask.editorWidth)
+                            .clipShape(RoundedRectangle(cornerRadius: DS.controlRadius))
+                            .accessibilityLabel("Preview with sensitive details covered")
+                    }.padding(DS.panelPadding)
+                }
             }
-        }.padding(DS.md).background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.Ask.bubble))
+            HStack {
+                Button("Cancel") { model.cancelConsent(); focused = true }.buttonStyle(.plain).font(DS.caption)
+                Spacer()
+                if !model.options.redactBeforeSending {
+                    Button("Redact and send") { confirmCurrentCapture(redact: true) }.buttonStyle(QuietButtonStyle())
+                }
+                Button(model.options.redactBeforeSending ? "Send with redactions" : "Send") {
+                    confirmCurrentCapture(redact: model.options.redactBeforeSending)
+                }.buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.return, modifiers: .command)
+            }
+        }.padding(DS.md).background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.smallRadius))
             .padding(.horizontal, DS.md).padding(.bottom, DS.sm)
+            .onDisappear { showingRedactedPreview = false }
+    }
+
+    private func confirmCurrentCapture(redact: Bool) {
+        model.updateDraft(for: editor.current)
+        if model.awaitingConsent { model.confirm(redact: redact) }
     }
 
     private var consentDetail: String {
-        var parts = ["the image"]
-        if model.options.includeRecognizedText { parts.append("its recognized text") }
-        if model.includesEarlierMessages { parts.append("excerpts from this conversation") }
+        var parts = [isRecording ? "your edited frame and its timestamp" : "your screenshot"]
+        if model.pendingAttachmentCount > 0 {
+            parts.append(model.pendingAttachmentCount == 1 ? "one selected region" : "\(model.pendingAttachmentCount) selected regions")
+        }
+        if model.options.includeRecognizedText { parts.append("recognized text") }
+        if model.includesEarlierMessages { parts.append("earlier conversation excerpts") }
         let contents = ListFormatter.localizedString(byJoining: parts)
-        let privacy: String
         if let count = model.sensitiveCount, count > 0 {
-            privacy = "Smart redact found \(count) sensitive \(count == 1 ? "detail" : "details")."
-        } else { privacy = "Smart redact can cover sensitive details first." }
-        return "\(provider.title) will receive \(contents) through \(provider.toolName). \(privacy)"
+            return "\(provider.toolName) sends \(contents). Smart redact found \(count) sensitive \(count == 1 ? "detail" : "details")."
+        }
+        return "\(provider.toolName) sends \(contents)."
     }
 
     private var limitDetail: String {
@@ -323,13 +382,17 @@ public struct AskView: View {
     }
 
     private func state<Actions: View>(_ icon: String, _ title: String, _ detail: String, @ViewBuilder actions: () -> Actions) -> some View {
-        VStack(spacing: DS.md) {
-            Icon(icon, size: DS.xl).frame(width: DS.Ask.cell, height: DS.Ask.cell)
-                .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.groupRadius))
-            Text(title).font(DS.title)
-            Text(detail).font(DS.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            actions()
-        }.multilineTextAlignment(.center).padding(DS.xl).frame(maxWidth: .infinity, maxHeight: .infinity)
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.md) {
+                Label { Text(title).font(DS.title) } icon: { Icon(icon, size: DS.iconSize) }
+                Text(detail).font(DS.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                actions()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(DS.lg)
+            .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.smallRadius))
+            .padding(.horizontal, DS.md)
+        }.scrollIndicators(.hidden)
     }
     private func errorNotice(_ text: String) -> some View {
         HStack {
@@ -350,9 +413,32 @@ public struct AskView: View {
 }
 
 /// A quick action: icon over title in a soft tile, lifting on hover.
+private struct RegionAttachment: View {
+    let region: AskRegion
+    let remove: () -> Void
+    @LocalState private var thumbnail: CGImage?
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        HStack(spacing: DS.xs) {
+            Group {
+                if let thumbnail { Image(decorative: thumbnail, scale: 1).resizable().scaledToFit() }
+                else { Icon("selection-plus", size: DS.icon) }
+            }
+            .frame(width: DS.xl, height: DS.lg)
+            .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.xs))
+            .accessibilityHidden(true)
+            Text(region.title).font(DS.caption).lineLimit(1)
+            IconButton("x", label: "Remove \(region.label)", size: DS.lg, action: remove)
+        }
+        .padding(DS.xs)
+        .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.controlRadius))
+        .task(id: region.id) { thumbnail = await region.thumbnail() }
+    }
+}
+
 private struct AskActionButton: View {
     let action: AskQuickAction
-    let fill: Bool
     let perform: () -> Void
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduced
@@ -365,11 +451,11 @@ private struct AskActionButton: View {
                     .foregroundStyle(hovering && enabled ? DS.actionInk(scheme) : Color.secondary)
                 Text(action.title).font(DS.caption.weight(.semibold)).lineLimit(1)
             }
-            .padding(.horizontal, DS.sm).frame(maxWidth: fill ? .infinity : nil).frame(height: DS.Ask.send)
-            .background(hovering && enabled ? DS.hover(scheme) : DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.controlRadius + DS.xs / 2, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: DS.controlRadius + DS.xs / 2, style: .continuous)
+            .padding(.horizontal, DS.sm).frame(height: DS.Ask.send)
+            .background(hovering && enabled ? DS.hover(scheme) : DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.controlRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DS.controlRadius, style: .continuous)
                 .strokeBorder(hovering && enabled ? DS.accent.opacity(DS.outlineOpacity * 2) : DS.hairline(scheme)))
-            .contentShape(RoundedRectangle(cornerRadius: DS.controlRadius + DS.xs / 2))
+            .contentShape(Rectangle())
             .opacity(enabled ? 1 : DS.mutedOpacity)
         }
         .buttonStyle(PressableStyle())
