@@ -26,9 +26,8 @@ public struct ShortcutRecorder: NSViewRepresentable {
         recordingChanged?(recording)
         updateStyle()
     } }
-    /// Unassigned shortcuts invite recording instead of showing an empty key.
     var label: String {
-        if shortcut.modifiers == 0 { return neutral ? "Record…" : "Record" }
+        if shortcut.modifiers == 0 { return neutral ? "Unassigned" : "Record" }
         return neutral ? shortcut.display.map(String.init).joined(separator: " ") : shortcut.display
     }
     override public var acceptsFirstResponder: Bool { true }
@@ -48,7 +47,8 @@ public struct ShortcutRecorder: NSViewRepresentable {
         layer?.cornerRadius = neutral ? DS.Preferences.controlRadius : 7
         effectiveAppearance.performAsCurrentDrawingAppearance {
             layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(neutral ? 0.045 : 0.08).cgColor
-            layer?.borderColor = ((recording || (neutral && focused)) ? (neutral ? DS.Preferences.nsFocus : DS.nsAccent) : NSColor.labelColor.withAlphaComponent(0.18)).cgColor
+            layer?.borderColor = ((recording || (neutral && focused)) ? (neutral ? DS.Preferences.nsFocus : DS.nsAccent) : NSColor.labelColor.withAlphaComponent(0.25)).cgColor
+            contentTintColor = neutral && shortcut.modifiers == 0 && !recording ? .secondaryLabelColor : .labelColor
         }
         layer?.borderWidth = (recording || (neutral && focused)) ? DS.Preferences.focusWidth : DS.Preferences.hairline
         setAccessibilityValue(recording ? "Recording; press a shortcut or Escape to cancel" : label)

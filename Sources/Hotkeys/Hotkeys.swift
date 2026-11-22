@@ -48,13 +48,48 @@ public struct Shortcut: Codable, Equatable, Sendable {
     }
 }
 
+package struct HotkeyInstallation {
+    package var installed: [String: Shortcut]
+    package var preferences: [String: Shortcut]
+    package var failures: [(action: String, message: String)]
+
+    /// A system shortcut collision is isolated to its action. Register fallbacks only once the
+    /// other requested shortcuts are installed, so a fallback cannot take a newly assigned key.
+    package static func register(actions: [String], requested: [String: Shortcut], previous: [String: Shortcut],
+                                 register: (Int, Shortcut) throws -> Void) -> HotkeyInstallation {
+        var result = HotkeyInstallation(installed: [:], preferences: requested, failures: [])
+        var failed: [(index: Int, action: String)] = []
+        for (index, id) in actions.enumerated() {
+            guard let shortcut = requested[id] else { continue }
+            do {
+                try register(index, shortcut)
+                result.installed[id] = shortcut
+            } catch {
+                result.failures.append((id, error.localizedDescription))
+                failed.append((index, id))
+            }
+        }
+        for (index, id) in failed {
+            guard let fallback = previous[id], fallback != requested[id] else { continue }
+            do {
+                try register(index, fallback)
+                result.preferences[id] = fallback
+                result.installed[id] = fallback
+            } catch {}
+        }
+        return result
+    }
+}
+
 public extension Shortcut {
     static let actions: [(id:String,title:String)] = [
         ("screen","Capture screen"),("area","Capture area"),("window","Capture window"),
         ("all","Capture all displays"),("previous","Capture previous area"),("scrolling","Scrolling capture"),
         ("timed","Timed area capture"),("text","Recognize text"),("code","Scan QR / barcode"),
         ("last","Open last capture"),("history","Open capture library"),("pin","Pin from clipboard"),
-        ("icons","Hide desktop icons in captures")
+        ("icons","Hide desktop icons in captures"),("unlockPin","Unlock pin under pointer"),
+        ("disposable","Capture disposable area"),("webpage","Capture a webpage"),("recent","Open recent captures"),
+        ("record","Record screen"),("stopRecording","Stop screen recording")
     ]
     static let unassigned = Shortcut(keyCode:0,modifiers:0,keyLabel:"Record shortcut")
     static let editorDefaults: [String:String] = ["select":"v","crop":"c","arrow":"a","rectangle":"r","oval":"o","line":"l","text":"t","drawing":"d","highlighter":"h","counter":"n","blur":"b","pixelate":"x","spotlight":"s","magnifier":"m","erase":"e","ruler":"u","picker":"i"]
