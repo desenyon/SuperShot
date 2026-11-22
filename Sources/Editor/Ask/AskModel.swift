@@ -93,7 +93,7 @@ public struct AskQuickAction: Equatable, Sendable, Identifiable {
     public var transcript: String {
         messages.filter { !$0.text.isEmpty }.map { "\($0.role == .user ? "You" : "Assistant"): \($0.text)" }.joined(separator: "\n\n")
     }
-    public var otherProvider: AssistantProvider { options.provider == .chatgpt ? .claude : .chatgpt }
+    public var otherProvider: AssistantProvider? { Assistant.availableProviders.first { $0 != options.provider } }
 
     private let factory: AssistantFactory
     private var service: any AssistantService

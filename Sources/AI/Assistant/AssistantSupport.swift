@@ -6,14 +6,46 @@ import Export
 
 public enum Assistant {
     private static let codex = CodexAssistantService()
+    #if DEBUG
     private static let claude = ClaudeCodeAssistantService()
+    public static let availableProviders: [AssistantProvider] = [.chatgpt, .claude]
+    #else
+    public static let availableProviders: [AssistantProvider] = [.chatgpt]
+    #endif
     private static let cleanup = Task.detached(priority: .utility) { AskDirectory.purgeStale() }
+
+    public static func availableProvider(named name: String) -> AssistantProvider? {
+        availableProviders.first { $0.rawValue == name }
+    }
+
     public static func service(for provider: AssistantProvider) -> any AssistantService {
         _ = cleanup
-        return switch provider { case .chatgpt: codex; case .claude: claude }
+        switch provider {
+        case .chatgpt: return codex
+        case .claude:
+            #if DEBUG
+            return claude
+            #else
+            return UnavailableClaudeService()
+            #endif
+        }
     }
     public static func purgeStale() { AskDirectory.purgeStale() }
 }
+
+#if !DEBUG
+private struct UnavailableClaudeService: AssistantService {
+    let provider = AssistantProvider.claude
+    func availability() async -> AssistantAvailability { .notInstalled }
+    func signIn() async throws -> AssistantSignIn { throw AssistantError.notInstalled(provider) }
+    func signOut() async throws { throw AssistantError.notInstalled(provider) }
+    func usage() async -> AssistantUsage? { nil }
+    func models() async -> [String] { [] }
+    func startConversation(_ context: AssistantContext, model: String?) async throws -> any AssistantConversation {
+        throw AssistantError.notInstalled(provider)
+    }
+}
+#endif
 
 final class AskDirectory: Sendable {
     static let root = FileManager.default.temporaryDirectory.appendingPathComponent("SuperShot-Ask", isDirectory: true)

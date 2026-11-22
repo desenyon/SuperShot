@@ -34,8 +34,10 @@ public struct AskView: View {
             header
             if model.usage?.limitReached == true {
                 state("clock", "Usage limit reached", limitDetail) {
-                    alternateProvider
-                    Text("Switching providers keeps this conversation.").font(DS.caption).foregroundStyle(.secondary)
+                    if model.otherProvider != nil {
+                        alternateProvider
+                        Text("Switching providers keeps this conversation.").font(DS.caption).foregroundStyle(.secondary)
+                    }
                 }.transition(reveal)
             } else if let availability = model.availability, !availability.isReady {
                 accountState(availability).transition(reveal)
@@ -63,32 +65,41 @@ public struct AskView: View {
     private var header: some View {
         HStack(spacing: DS.sm) {
             Text("Ask").font(DS.title)
-            Menu {
-                Button("ChatGPT") { model.switchProvider(.chatgpt) }.disabled(provider == .chatgpt)
-                Button("Claude") { model.switchProvider(.claude) }.disabled(provider == .claude)
-            } label: {
-                HStack(spacing: DS.xs) {
-                    Icon(provider == .chatgpt ? "aperture" : "sparkle", size: DS.md)
-                    Text(provider.title)
-                    Icon("caret-down", weight: .bold, size: DS.sm + DS.xs / 2)
-                }.font(DS.caption).foregroundStyle(.secondary)
-                    .padding(.horizontal, DS.sm).padding(.vertical, DS.xs)
-                    .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.controlRadius))
-                    .contentShape(Rectangle())
-            }.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-                .accessibilityLabel("Provider: \(provider.title)").help("Switch provider")
+            if let other = model.otherProvider {
+                Menu {
+                    Button(provider.title) {}.disabled(true)
+                    Button(other.title) { model.switchProvider(other) }
+                } label: {
+                    providerBadge(canSwitch: true)
+                }.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                    .accessibilityLabel("Provider: \(provider.title)").help("Switch provider")
+            } else {
+                providerBadge(canSwitch: false)
+            }
             Spacer()
             Menu {
                 if let openEditor { Button("Open in editor") { _ = openEditor() }; Divider() }
                 Button("New conversation") { editor.pickingAskRegion = false; model.newConversation() }
-                Button("Use ChatGPT") { model.switchProvider(.chatgpt) }.disabled(provider == .chatgpt)
-                Button("Use Claude") { model.switchProvider(.claude) }.disabled(provider == .claude)
+                if let other = model.otherProvider {
+                    Button("Use \(other.title)") { model.switchProvider(other) }
+                }
                 Divider()
                 Button("Copy conversation") { editor.copyText(model.transcript) }.disabled(model.transcript.isEmpty)
             } label: { Icon("dots-three", weight: .bold, size: DS.iconSize).frame(width: DS.xl, height: DS.xl) }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().accessibilityLabel("Conversation options").help("Conversation options")
             IconButton("x", label: "Close Ask", size: DS.xl, action: close)
         }.padding(.horizontal, DS.lg).padding(.top, DS.md).padding(.bottom, DS.md)
+    }
+
+    private func providerBadge(canSwitch: Bool) -> some View {
+        HStack(spacing: DS.xs) {
+            Icon(provider == .chatgpt ? "aperture" : "sparkle", size: DS.md)
+            Text(provider.title)
+            if canSwitch { Icon("caret-down", weight: .bold, size: DS.sm + DS.xs / 2) }
+        }
+        .font(DS.caption).foregroundStyle(.secondary)
+        .padding(.horizontal, DS.sm).padding(.vertical, DS.xs)
+        .background(DS.card(scheme), in: RoundedRectangle(cornerRadius: DS.controlRadius))
     }
 
     private var transcript: some View {
@@ -353,8 +364,10 @@ public struct AskView: View {
         let reset = model.usage?.resetsAt.map { "Your \(provider.title) plan resets \($0.formatted(date: .abbreviated, time: .shortened))." }
         return (reset ?? "Your \(provider.title) plan has reached its usage limit.") + " Recognized text, copying, and smart tools still work on this Mac."
     }
-    private var alternateProvider: some View {
-        Button("Ask \(model.otherProvider.title) instead") { model.switchProvider(model.otherProvider) }.buttonStyle(QuietButtonStyle())
+    @ViewBuilder private var alternateProvider: some View {
+        if let other = model.otherProvider {
+            Button("Ask \(other.title) instead") { model.switchProvider(other) }.buttonStyle(QuietButtonStyle())
+        }
     }
 
     @ViewBuilder private func accountState(_ availability: AssistantAvailability) -> some View {
@@ -363,8 +376,10 @@ public struct AskView: View {
             state("sign-in", model.waitingForBrowser ? "Waiting for your browser…" : "Sign in with \(provider.title)",
                   "Ask questions about your captures using your \(provider.title) plan. Sign-in opens in your \(provider == .chatgpt ? "browser" : "terminal").") {
                 Button("Sign in with \(provider.title)") { model.signIn() }.buttonStyle(PrimaryButtonStyle()).disabled(model.waitingForBrowser)
-                Button("Use \(model.otherProvider.title) instead") { model.switchProvider(model.otherProvider) }
-                    .buttonStyle(.plain).font(DS.body).foregroundStyle(.secondary)
+                if let other = model.otherProvider {
+                    Button("Use \(other.title) instead") { model.switchProvider(other) }
+                        .buttonStyle(.plain).font(DS.body).foregroundStyle(.secondary)
+                }
             }
         case .notInstalled:
             state("terminal-window", "Install \(provider.toolName)", "How to install") {

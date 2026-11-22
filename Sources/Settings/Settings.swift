@@ -3,6 +3,7 @@ import Observation
 import Hotkeys
 import Document
 import DesignSystem
+import AI
 
 public enum AppAppearance: String, Codable, CaseIterable, Sendable {
     case system, light, dark
@@ -101,7 +102,8 @@ public struct AssistantPreferences: Codable, Equatable, Sendable {
             .filter { !$0.isEmpty && seen.insert($0).inserted }
         if !["chatgpt", "claude", "off"].contains(provider) { provider = "chatgpt" }
     }
-    public var isEnabled: Bool { provider != "off" }
+    public var availableProvider: AssistantProvider? { Assistant.availableProvider(named: provider) }
+    public var isEnabled: Bool { availableProvider != nil }
 }
 
 /// Interface choices beyond light and dark. Every field decodes optionally.

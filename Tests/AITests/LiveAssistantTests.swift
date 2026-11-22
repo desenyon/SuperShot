@@ -40,6 +40,7 @@ struct LiveAssistantTests {
     @Test(.enabled(if: LiveAssistantTests.enabled), .timeLimit(.minutes(3)))
     func chatGPTThroughCodexAnswersAndFollowsUp() async throws { try await converse(.chatgpt) }
 
-    @Test(.enabled(if: LiveAssistantTests.enabled && ProcessInfo.processInfo.environment["SUPERSHOT_LIVE_CLAUDE"] == "1"), .timeLimit(.minutes(3)))
+    @Test(.enabled(if: LiveAssistantTests.enabled && Assistant.availableProviders.contains(.claude) &&
+        ProcessInfo.processInfo.environment["SUPERSHOT_LIVE_CLAUDE"] == "1"), .timeLimit(.minutes(3)))
     func claudeThroughClaudeCodeAnswersAndFollowsUp() async throws { try await converse(.claude) }
 }

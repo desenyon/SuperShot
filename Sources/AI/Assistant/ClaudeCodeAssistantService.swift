@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 
 actor ClaudeCodeAssistantService: AssistantService {
@@ -151,3 +152,5 @@ private actor ClaudeConversation: AssistantConversation {
     func close() async { end(.cancelled); await transport.terminate() }
     deinit { let transport = transport; Task { await transport.terminate() } }
 }
+
+#endif

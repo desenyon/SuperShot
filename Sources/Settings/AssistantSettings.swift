@@ -13,12 +13,12 @@ struct AssistantSettings: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var scheme
     @Environment(\.settingsCompact) private var compact
-    private var selected: AssistantProvider? { AssistantProvider(rawValue: store.preferences.assistant.provider) }
+    private var selected: AssistantProvider? { store.preferences.assistant.availableProvider }
 
     var body: some View {
         VStack(alignment: .leading, spacing: S.sectionGap) {
             SettingsGroup(title: "Provider") {
-                ForEach(AssistantProvider.allCases) { provider in
+                ForEach(Assistant.availableProviders) { provider in
                     providerRow(provider)
                     SettingsDivider()
                 }
@@ -61,7 +61,7 @@ struct AssistantSettings: View {
 
     private func providerRow(_ provider: AssistantProvider?) -> some View {
         let id = provider?.rawValue ?? "off"
-        let active = store.preferences.assistant.provider == id
+        let active = selected == provider
         return Button {
             guard !active else { return }
             withAnimation(DS.Motion.snappy(reduceMotion)) {

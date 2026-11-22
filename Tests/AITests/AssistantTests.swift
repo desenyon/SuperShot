@@ -131,10 +131,26 @@ struct AssistantTests {
     @Test func versionsGateBothServicesBeforeLaunch() async {
         let io = MemoryLines()
         let codex = CodexAssistantService(runtime: runtime(io, version: "0.168.9"))
-        let claude = ClaudeCodeAssistantService(runtime: runtime(io, version: "2.0.99"))
         #expect(await codex.availability() == .unsupportedVersion(found: "0.168.9", minimum: "0.169.0"))
+        #if DEBUG
+        let claude = ClaudeCodeAssistantService(runtime: runtime(io, version: "2.0.99"))
         #expect(await claude.availability() == .unsupportedVersion(found: "2.0.99", minimum: "2.1.0"))
+        #endif
         #expect(await io.writes.isEmpty)
+    }
+
+    @Test func assistantProvidersMatchTheBuildConfiguration() async throws {
+        #expect(Assistant.availableProvider(named: "off") == nil)
+        #if DEBUG
+        #expect(Assistant.availableProviders == [.chatgpt, .claude])
+        #else
+        #expect(Assistant.availableProviders == [.chatgpt])
+        #expect(Assistant.availableProvider(named: "claude") == nil)
+        let service = Assistant.service(for: .claude)
+        #expect(await service.availability() == .notInstalled)
+        await #expect(throws: AssistantError.notInstalled(.claude)) { try await service.signIn() }
+        await #expect(throws: AssistantError.notInstalled(.claude)) { try await service.startConversation(context(), model: nil) }
+        #endif
     }
     @Test func accountHandshakeAndDenials() async throws {
         let io = MemoryLines(), tool = "/fixture/codex"
@@ -197,6 +213,7 @@ struct AssistantTests {
         #expect(await io.messages("thread/unsubscribe").count == 1)
     }
 
+    #if DEBUG
     @Test func claudePartialMessagesFollowupsAndErrors() async throws {
         let io = MemoryLines(claude: true), service = ClaudeCodeAssistantService(runtime: runtime(io))
         #expect(await service.availability() == .ready(AssistantAccount(email: "a@example.test", plan: "Max", toolVersion: "2.1.325", toolPath: "/fixture/claude")))
@@ -217,6 +234,8 @@ struct AssistantTests {
         #expect(inputs[1][1]["text"] == "two\n[Attached: Detail]")
         await chat.close()
     }
+
+    #endif
 
     @Test func concurrentThreadsAndCancellationAreIsolated() async throws {
         let io = MemoryLines(), service = CodexAssistantService(runtime: runtime(io))
@@ -239,6 +258,7 @@ struct AssistantTests {
         await a.close(); await b.close()
     }
 
+    #if DEBUG
     @Test func claudeImmediateCancellationAndStructuredLimit() async throws {
         let io = MemoryLines(claude: true), service = ClaudeCodeAssistantService(runtime: runtime(io))
         let chat = try await service.startConversation(context(), model: nil)
@@ -250,6 +270,8 @@ struct AssistantTests {
         }
         await chat.close()
     }
+
+    #endif
 
     @Test func purgeAndDownscale() throws {
         let parent = try AskDirectory()
@@ -363,6 +385,7 @@ struct AssistantTests {
         await chat.close()
     }
 
+    #if DEBUG
     @Test func claudeExecutableKeepsOneProcessAndScalesImages() async throws {
         let folder = try AskDirectory()
         defer { folder.remove() }
@@ -400,6 +423,7 @@ struct AssistantTests {
         await chat.close()
         await #expect(throws: AssistantError.cancelled) { try await collect(chat.send("closed", attachments: [])) }
     }
+    #endif
 }
 
 extension AssistantTests {
