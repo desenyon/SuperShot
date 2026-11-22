@@ -66,6 +66,10 @@
 	<string>NSApplication</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>SuperShot needs screen access to capture the screen, window, or area you choose. Your images stay on your Mac.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SuperShot records your microphone when you turn it on for a screen recording. Recordings are saved on your Mac.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>SuperShot records your camera when you turn it on for a screen recording. Camera footage is saved on your Mac.</string>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
