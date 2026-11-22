@@ -2,13 +2,13 @@
 
 SuperShot is a native macOS screenshot app whose first requirement is that it is beautiful. It captures (screen, window, area, scrolling), recognizes (text, QR), beautifies (backgrounds, shadows, padding), and edits (a full annotation editor with AI tools). Everything runs locally and fast.
 
-This file is the product specification and the rules for agents working here. The native implementation now lives in `Sources/`, with eleven library test targets in `Tests/` and a signed local app in `dist/SuperShot.app`. See `README.md` for usage, `CHANGELOG.md` for release history, `docs/verification/2026-11-16.md` for the original implementation and audit, and `docs/verification/2026-11-18-0.1.0.md` for the 0.1.0 checks. `docs/previews/` shows the current interface. Features below remain the target specification; their presence here is not a claim that every acceptance gate has passed.
+This file is the product specification and the rules for agents working here. Native implementation lives in `Sources/` and automated checks in `Tests/`. A signed local build can be staged with `scripts/bundle.sh`. See `README.md` for usage, `CHANGELOG.md` for release history, and `docs/previews/` for offscreen renders. Features listed here describe the target specification and require separate acceptance evidence.
 
 ## Product principles
 
 1. **Beauty is a feature with acceptance criteria.** A screen that works but looks ordinary is not done. See "Design language".
 2. **Capture is instant.** Hotkey to frozen overlay in under 100 ms. Never show a spinner between pressing a hotkey and selecting.
-3. **Local first.** OCR, QR, and most AI tools run on-device. Nothing leaves the Mac unless the user turned on a cloud provider and triggered the action.
+3. **Local first.** Capture, recording, recognition, Library organization, and editing run on-device. A user action initiates a webpage load, update check, Ask request, or Review Link upload. Ask and Review Links identify the destination before the first send.
 4. **Non-destructive.** The original pixels are never modified. Annotations, crop, and backdrop are layers that can be reopened and changed later.
 5. **Everything has a hotkey**, and every hotkey can be changed.
 
@@ -38,6 +38,8 @@ No Electron, no web views, no cross-platform UI layers.
 - **Timed**: 3, 5, or 10 second delay, for menus and hover states.
 - **Recognize text**: select an area, text goes straight to the clipboard, no image is kept.
 - **Scan QR / barcode**: select an area, show the payload with open and copy actions.
+- **Disposable area**: retain the screenshot for this session without writing a Library project. The thumbnail and Recent Captures let users keep it explicitly.
+- **Webpage**: capture a URL in an installed Chromium browser with a fresh headless profile, custom CSS viewport, light or dark appearance, and optional full-page height.
 
 ### After capture
 
@@ -51,9 +53,9 @@ The user configures a **set** of actions that all run after a capture (and/or, a
 
 Area capture has its own separate setting, a single choice: **open editor**, **show thumbnail**, or **copy**. Each capture mode may override the global set.
 
-Settings → Capture → Quick capture includes **Automatically copy screenshots**, an additive switch that copies every image capture while preserving all other actions, including mode overrides and explicit overlay image actions. OCR/text and barcode workflows remain separate. **Capture on mouse release** skips Enter for a freshly dragged area screenshot; it is off by default. Clicks, zero-area drags, and cancellation must never capture. Window, scrolling, OCR, and barcode selection retain their existing confirmation behavior; typed selections and subsequent resize/move operations can still be confirmed with Enter.
+Settings → Capture → After capture includes **Always copy**, an additive switch that copies alongside mode overrides and explicit overlay actions. **Area selection → Capture on mouse release** skips Return for a freshly dragged area screenshot and defaults off. Clicks, zero-area drags, and cancellation must never capture. Window, scrolling, OCR, and barcode selection retain their existing confirmation behavior. Typed selections and subsequent resize or move operations can still be confirmed with Return.
 
-The **quick-access thumbnail** floats in a screen corner. It can be dragged into any app, clicked to open the editor, swiped away to dismiss, and has hover buttons for copy, save, pin, and delete. Several thumbnails stack.
+The **quick-access thumbnail** floats in a screen corner. Drag it into an app, click to edit, or swipe to dismiss. Its action shelf sits below the image. Several thumbnails stack and Recent Captures retains a bounded list for this session.
 
 ### Backdrop
 
@@ -135,11 +137,11 @@ All AI features sit behind one `AIProvider` protocol with three tiers. Use the l
 
 1. **Vision and Core Image** (always available): OCR, barcodes, faces, subject lifting, redaction detection with `NSDataDetector` and patterns.
 2. **On-device models** (downloaded on demand, never bundled): inpainting for object erase, upscaling, and Apple's Foundation Models framework for naming, describing, and Markdown conversion where available.
-3. **Subscription CLIs** (off until the user signs in): Ask and any future cloud action run through Codex (ChatGPT) or Claude Code on this Mac, using the user's own plan. No API keys. Every cloud action shows that the image will be uploaded before it runs.
+3. **Subscription CLI** (off until the user signs in): public builds use Codex (ChatGPT) on this Mac. The Claude Code transport is compiled into local debug builds only. The confirmation setting identifies the upload destination before the first send.
 
 ### Ask (chat about a capture)
 
-Ask is a chat panel about the current capture: a tab in the editor's right panel, a button on the area-selection action bar, and a button on the quick-access thumbnail that opens a glass chat panel attached to it. It uses the user's own subscription through a local CLI, never an API key: **ChatGPT via `codex app-server`** (default) or **Claude via headless Claude Code** (`claude -p` with stream-json). SuperShot never handles passwords or tokens; each tool owns sign-in. The public API is `AI/Assistant/AssistantTypes.swift`. Before the first upload in a conversation the panel says which vendor receives the image (setting: confirm before sending). Recognized text may be included; Smart redact can blur sensitive regions first. Threads are ephemeral, read-only, and never run tools. Third-party login policies: confirm with OpenAI and Anthropic before a public release that ships these integrations.
+Ask opens from the editor, the area-selection action bar, the quick-access thumbnail, and an edited still in the recording editor. Public builds use the user's ChatGPT subscription via `codex app-server`. Codex owns sign-in and credentials. The public API is `AI/Assistant/AssistantTypes.swift`. Before the first upload in a conversation the panel shows the destination when confirmation is enabled. Recognized text may be included and Smart Redact can blur sensitive regions first. Conversations are read-only and never run tools. OpenAI documents continued use of [app-server authentication for existing local integrations](https://learn.chatgpt.com/docs/app-server#authentication). Anthropic's [authentication policy](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use) restricts using subscriptions in third-party products. Public builds omit that transport. A saved Claude selection resolves to Off until the user picks ChatGPT.
 
 ### System integration
 
@@ -160,7 +162,7 @@ What "better" means here:
 - **Editor layout as built**: a centered tool capsule at the top with a contextual options bar under it (shown only when a tool or selection has options), the backdrop panel floating on the left, one switchable panel on the right (text and codes, smart tools, Ask, layers, details), and three capsules along the bottom (document and undo, zoom, export).
 - **Customization** lives in `Preferences.customization` (accent, density, glass or solid chrome, editor tool order and visibility, area-selection action bar buttons and labels, thumbnail hover buttons) and `Preferences.assistant`. New fields decode optionally.
 - **One accent color** (`DS.accent`, Clear blue `#2F7CF6` by default; the user may pick blue, teal, graphite, or tangerine in Settings → Appearance), used only for selection and primary actions. Everything else is neutral. Annotation colors are the only saturated color on screen. **No purple, violet, or indigo anywhere** in the app: not in accents, palettes, gradients, presets, or the brand mark. `IconTests` enforces this for the shared palettes. Read the accent through `DS.accent`/`DS.nsAccent`/`DS.onAccent` (MainActor, live); AppKit views redraw on `DS.themeDidChange`.
-- **Settings is graphite-only.** All nine pages use `DS.Preferences` and shared Settings components. Grouped navigation uses neutral Phosphor tiles over a native sidebar material. Cards use a 12 pt radius, 44 pt rows (30 pt compact), and graphite controls and focus outlines. The four accent swatches in Appearance show the actual palette. No purple, status dots, large action tiles, or decorative badges. Keep this styling scoped to Settings. Reduce Transparency uses opaque appearance-specific surfaces. Previews can exercise that fallback without changing system preferences.
+- **Settings uses an edge-to-edge electric-blue glass rail and a neutral detail pane.** All nine pages share `DS.Preferences` and the Settings components. The glass rail has six icon-only quick destinations, collapsible grouped navigation, and search. The detail pane uses plain section headings, dividers, and neutral controls. Reduce Transparency uses solid appearance-specific surfaces.
 - **Typography**: SF Pro, with SF Mono for numbers (dimensions, zoom, hex values) using tabular figures. Three text sizes at most per surface.
 - **Icons**: Phosphor Icons 2.1.1 (MIT, `THIRD_PARTY_NOTICES.md`), embedded as SVG in `DesignSystem/PhosphorData.swift` and drawn through `Icon(name, weight:size:)` in SwiftUI or `Icons.image`/`Icons.tinted` in AppKit. Regular weight at rest, `.fill` for selected or active states, `.bold` only on small dark HUDs. Pass Phosphor names (`"push-pin"`); older SF Symbol names resolve through `Icons.legacy`. To add icons, append names to `scripts/make-icons.swift` and rerun it. Never use `Image(systemName:)` or `NSImage(systemSymbolName:)` in feature code, except native menu checkmarks. No mixed icon styles.
 - **Controls are custom where the default is ugly.** Sliders show their value while dragged, swatches are large and show a selection ring, the alignment grid and ratio picker are purpose-built. No default gray bezel buttons.
@@ -210,7 +212,8 @@ Rules:
 
 ## Permissions
 
-- **Screen Recording** is required. A compact setup appears once on first launch if access is missing. A separate persistent flag records that setup was shown, even if closed without granting access. Returning users manage permissions in Settings → Privacy; reopening the app opens Settings. Permission revocation must never reopen the welcome page.
+- **Screen Recording** is required for screenshots and local screen recording. On first launch without access, setup offers optional practice on a sample before the permission prompt. A separate persistent flag records that setup was shown, even if it was closed. Returning users manage access in Settings → Privacy and can open Welcome Tour from Help. Permission revocation must never reopen the welcome page.
+- **Microphone and camera** access are requested only for enabled recording inputs when the user starts recording. Review Links use rendered media and explicit destination consent.
 - **Accessibility** is requested only when the user enables auto-scroll.
 - Development builds must be signed with a stable local signing identity. Ad-hoc signing changes the code identity on every build, which makes macOS forget the Screen Recording grant each time.
 - Recent macOS versions periodically re-prompt for apps that capture the screen directly. Confirm the current behavior on macOS 26 and 27 before designing around it.
@@ -251,6 +254,5 @@ Finish and polish each milestone before starting the next. A milestone is done w
 ## Open questions
 
 - App Store distribution or direct download? Direct download with notarization is assumed, since sandboxing limits some capture and auto-scroll behavior.
-- Screen recording (video, GIF) is out of scope for now. Confirm.
-- Cloud upload and share links are out of scope for now. Confirm.
+- Should SuperShot offer a managed Review Links service alongside the optional self-hosted endpoint?
 - More inspiration images are welcome in `docs/inspiration/`; only one arrived.
